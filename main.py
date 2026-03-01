@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 Telegram Tips Bot (Single-file)
@@ -10,19 +9,17 @@ Features:
 - Favorites (in-memory)
 
 Dependencies:
-    pip install aiogram>=3.3
+    pip install aiogram>=3.3 asyncpg
 
 Security:
     Tokens are sensitive. Consider regenerating your token after testing.
-
-Author: Pheaktra & M365 Copilot
 """
 import os
 import asyncio
 import logging
-from typing import Dict, List, Any, Tuple
-from db import init_db
+from typing import Dict, List, Any
 
+import asyncpg
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -36,16 +33,20 @@ from aiogram.fsm.context import FSMContext
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 
+from db import init_db
+
 # =========================
 # CONFIG
 # =========================
-# ⚠️ Security note: consider regenerating token after testing.
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing")
-	
-DEFAULT_LANG = "en"
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing")
+
+DEFAULT_LANG = "en"
 
 # =========================
 # SAMPLE DATA (in-memory)
@@ -2034,37 +2035,30 @@ def get_text(user_id: int, key: str) -> str:
 
 
 # =========================
-# CONTENT STORE
+# CONTENT STORE (with DB for favorites)
 # =========================
 class ContentStore:
     def __init__(self, data: Dict[str, Dict[str, List[Dict[str, Any]]]]):
         self.data = data
-        # Build flat index id->tip
         self.index: Dict[str, Dict[str, Any]] = {}
         for cat, submap in data.items():
             for sub, items in submap.items():
                 for tip in items:
                     self.index[tip["id"]] = tip
-        # In-memory favorites: user_id -> set(tip_id)
-        # self.favorites: Dict[int, set] = {}
-        # In-memory view counts: tip_id -> count
+        # In-memory counts (views, shares) – can stay for now
         self.view_counts: Dict[str, int] = {}
-        # In-memory favorite counts: tip_id -> count
         self.fav_counts: Dict[str, int] = {}
-        # In-memory share counts: tip_id -> count
         self.share_counts: Dict[str, int] = {}
 
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
         conn = await asyncpg.connect(DATABASE_URL)
         try:
-            # Insert, ignore if already exists
             result = await conn.execute('''
                 INSERT INTO user_favorites (user_id, tip_id)
                 VALUES ($1, $2)
                 ON CONFLICT DO NOTHING
             ''', user_id, tip_id)
             await conn.close()
-            # If a row was inserted, result will contain "INSERT 0 1"
             return 'INSERT 0 1' in result
         except:
             await conn.close()
@@ -2076,7 +2070,7 @@ class ContentStore:
         await conn.close()
         tip_ids = [row['tip_id'] for row in rows]
         return [self.index[tid] for tid in tip_ids if tid in self.index]
-	
+
     def list_subcats(self, category: str) -> List[str]:
         return sorted(list(self.data.get(category, {}).keys()))
 
@@ -2087,33 +2081,27 @@ class ContentStore:
         return self.index.get(tip_id)
 
     def increment_view(self, tip_id: str) -> int:
-        """Increment view count for a tip and return new count"""
         current = self.view_counts.get(tip_id, 0)
         self.view_counts[tip_id] = current + 1
         return current + 1
 
     def get_view_count(self, tip_id: str) -> int:
-        """Get view count for a tip"""
         return self.view_counts.get(tip_id, 0)
 
     def increment_fav(self, tip_id: str) -> int:
-        """Increment favorite count for a tip and return new count"""
         current = self.fav_counts.get(tip_id, 0)
         self.fav_counts[tip_id] = current + 1
         return current + 1
 
     def get_fav_count(self, tip_id: str) -> int:
-        """Get favorite count for a tip"""
         return self.fav_counts.get(tip_id, 0)
 
     def increment_share(self, tip_id: str) -> int:
-        """Increment share count for a tip and return new count"""
         current = self.share_counts.get(tip_id, 0)
         self.share_counts[tip_id] = current + 1
         return current + 1
 
     def get_share_count(self, tip_id: str) -> int:
-        """Get share count for a tip"""
         return self.share_counts.get(tip_id, 0)
 
     def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
@@ -2134,21 +2122,6 @@ class ContentStore:
             if len(results) >= limit:
                 break
         return results
-
-    def add_fav(self, user_id: int, tip_id: str) -> bool:
-        s = self.favorites.setdefault(user_id, set())
-        before = len(s)
-        s.add(tip_id)
-        # If favorite was added (not already in set), increment the fav count
-        if len(s) > before:
-            self.increment_fav(tip_id)
-            return True
-        return False
-
-    def get_favs(self, user_id: int) -> List[Dict[str, Any]]:
-        ids = self.favorites.get(user_id, set())
-        return [self.index[i] for i in ids if i in self.index]
-
 
 CONTENT = ContentStore(DATA)
 
@@ -3131,18 +3104,7 @@ async def handle_ingredient_pagination(cb: CallbackQuery):
 @bakery_router.callback_query(F.data.startswith("tips:fav:"))
 async def fav_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:fav:", "", 1)
-    added = await CONTENT.add_fav(cb.from_user.id, tip_id_str)   # <-- await
-    
-    # Check if this is an ingredient page ID (contains __)
-    if "__" in tip_id_str:
-        # Extract base tip ID for counting
-        base_tip_id = tip_id_str.split("__")[0]
-        # Add the ingredient page to favorites
-        added = CONTENT.add_fav(cb.from_user.id, tip_id_str)
-    else:
-        # Regular tip
-        added = CONTENT.add_fav(cb.from_user.id, tip_id_str)
-    
+    added = await CONTENT.add_fav(cb.from_user.id, tip_id_str)
     lang = get_user_lang(cb.from_user.id)
     await cb.answer(TEXTS[lang]["saved"] if added else TEXTS[lang]["already_saved"])
 
@@ -3201,9 +3163,8 @@ async def do_search(message: Message, state: FSMContext):
 @favorites_router.message(F.text == "⭐ រក្សាទុក")
 @favorites_router.message(F.text == "⭐ Favorites")
 async def show_favorites(message: Message):
-    tips = await CONTENT.get_favs(message.from_user.id)   # <-- await
+    tips = await CONTENT.get_favs(message.from_user.id)
     lang = get_user_lang(message.from_user.id)
-    
     if not tips:
         await message.answer(TEXTS[lang]["no_favorites"])
         return
@@ -3364,7 +3325,7 @@ async def settings_contact(cb: CallbackQuery):
 @settings_router.callback_query(F.data == "settings:stats")
 async def settings_stats(cb: CallbackQuery):
     # Get user's favorites count
-    favs = CONTENT.get_favs(cb.from_user.id)
+    favs = await CONTENT.get_favs(cb.from_user.id)
     fav_count = len(favs)
     
     # Calculate estimated views (this is simplified)
@@ -3427,10 +3388,7 @@ async def settings_clear_favs(cb: CallbackQuery):
 
 @settings_router.callback_query(F.data == "settings:confirm_clear_favs")
 async def settings_confirm_clear_favs(cb: CallbackQuery):
-    # Clear user's favorites
-    if cb.from_user.id in CONTENT.favorites:
-        CONTENT.favorites[cb.from_user.id] = set()
-    
+    # TODO: implement deletion from DB
     await cb.message.edit_text(
         "✅ បានលុបគន្លឹះដែលរក្សាទុកទាំងអស់ដោយជោគជ័យ!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -3480,7 +3438,7 @@ async def settings_units(cb: CallbackQuery):
 # APP BOOTSTRAP
 # =========================
 async def main():
-    await init_db()   # <-- add this line
+    await init_db()  # create table if not exists
     logging.basicConfig(level=logging.INFO)
     if not BOT_TOKEN or not BOT_TOKEN.strip():
         raise RuntimeError("BOT_TOKEN is missing")
@@ -3498,7 +3456,7 @@ async def main():
     dp.include_router(settings_router)  # Add this line
 
     await dp.start_polling(bot)
-back_to_bakery 
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
