@@ -49,13 +49,8 @@ print("=================================")
 print(f"DATABASE_URL from os.environ: {repr(os.environ.get('DATABASE_URL'))}")
 print(f"BOT_TOKEN from os.environ: {repr(os.environ.get('BOT_TOKEN'))}")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing")
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing")
+BOT_TOKEN = "7214241237:AAHojJtvd31R-CWgWR0BYUG-oDUNHO0ROzE"   # ← without the @ROZE part!
+DATABASE_URL = "postgresql://postgres:1XwGOXEmPDGGVOBFvrVDEbHtJvzwfdKA@postgres.railway.internal:5432/railway"
 
 DEFAULT_LANG = "en"
 
@@ -3474,6 +3469,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
