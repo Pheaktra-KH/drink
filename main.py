@@ -3439,6 +3439,7 @@ async def settings_units(cb: CallbackQuery):
 # =========================
 async def main():
     await init_db()  # create table if not exists
+    print("Database initialized successfully")
     logging.basicConfig(level=logging.INFO)
     if not BOT_TOKEN or not BOT_TOKEN.strip():
         raise RuntimeError("BOT_TOKEN is missing")
@@ -3462,4 +3463,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
