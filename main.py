@@ -50,7 +50,7 @@ print(f"DATABASE_URL from os.environ: {repr(os.environ.get('DATABASE_URL'))}")
 print(f"BOT_TOKEN from os.environ: {repr(os.environ.get('BOT_TOKEN'))}")
 
 BOT_TOKEN = "7214241237:AAHojJtvd31R-CWgWR0BYUG-oDUNHO0ROzE"
-DATABASE_URL = "postgresql://postgres:1XwGOXEmPDGGVOBFvrVDEbHtJvzwfdKA@containers-us-west-xxx.railway.app:PORT/railway"
+DATABASE_URL = "postgresql://postgres:lXwGOXEmpDGGVOBFvrVDEbHtJvzwfdKA@nozomi.proxy.rlwy.net:22016/railway"
 
 DEFAULT_LANG = "en"
 
@@ -3469,6 +3469,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
