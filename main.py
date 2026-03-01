@@ -21,6 +21,7 @@ import os
 import asyncio
 import logging
 from typing import Dict, List, Any, Tuple
+from db import init_db
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
@@ -2045,7 +2046,7 @@ class ContentStore:
                 for tip in items:
                     self.index[tip["id"]] = tip
         # In-memory favorites: user_id -> set(tip_id)
-        self.favorites: Dict[int, set] = {}
+        # self.favorites: Dict[int, set] = {}
         # In-memory view counts: tip_id -> count
         self.view_counts: Dict[str, int] = {}
         # In-memory favorite counts: tip_id -> count
@@ -2053,6 +2054,29 @@ class ContentStore:
         # In-memory share counts: tip_id -> count
         self.share_counts: Dict[str, int] = {}
 
+    async def add_fav(self, user_id: int, tip_id: str) -> bool:
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            # Insert, ignore if already exists
+            result = await conn.execute('''
+                INSERT INTO user_favorites (user_id, tip_id)
+                VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+            ''', user_id, tip_id)
+            await conn.close()
+            # If a row was inserted, result will contain "INSERT 0 1"
+            return 'INSERT 0 1' in result
+        except:
+            await conn.close()
+            return False
+
+    async def get_favs(self, user_id: int) -> List[Dict[str, Any]]:
+        conn = await asyncpg.connect(DATABASE_URL)
+        rows = await conn.fetch('SELECT tip_id FROM user_favorites WHERE user_id = $1', user_id)
+        await conn.close()
+        tip_ids = [row['tip_id'] for row in rows]
+        return [self.index[tid] for tid in tip_ids if tid in self.index]
+	
     def list_subcats(self, category: str) -> List[str]:
         return sorted(list(self.data.get(category, {}).keys()))
 
@@ -3107,6 +3131,7 @@ async def handle_ingredient_pagination(cb: CallbackQuery):
 @bakery_router.callback_query(F.data.startswith("tips:fav:"))
 async def fav_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:fav:", "", 1)
+    added = await CONTENT.add_fav(cb.from_user.id, tip_id_str)   # <-- await
     
     # Check if this is an ingredient page ID (contains __)
     if "__" in tip_id_str:
@@ -3176,7 +3201,7 @@ async def do_search(message: Message, state: FSMContext):
 @favorites_router.message(F.text == "⭐ រក្សាទុក")
 @favorites_router.message(F.text == "⭐ Favorites")
 async def show_favorites(message: Message):
-    tips = CONTENT.get_favs(message.from_user.id)
+    tips = await CONTENT.get_favs(message.from_user.id)   # <-- await
     lang = get_user_lang(message.from_user.id)
     
     if not tips:
@@ -3455,6 +3480,7 @@ async def settings_units(cb: CallbackQuery):
 # APP BOOTSTRAP
 # =========================
 async def main():
+    await init_db()   # <-- add this line
     logging.basicConfig(level=logging.INFO)
     if not BOT_TOKEN or not BOT_TOKEN.strip():
         raise RuntimeError("BOT_TOKEN is missing")
@@ -3478,3 +3504,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
