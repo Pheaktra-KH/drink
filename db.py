@@ -1,19 +1,16 @@
 import asyncpg
-import os
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-print(f"🔍 Connecting with DATABASE_URL: {repr(DATABASE_URL)}")
-conn = await asyncpg.connect(DATABASE_URL)
+from main import DATABASE_URL  # or import from config
 
 async def init_db():
+    """Create the user_favorites table if it doesn't exist."""
     conn = await asyncpg.connect(DATABASE_URL)
-    await conn.execute('''
-        CREATE TABLE IF NOT EXISTS user_favorites (
-            user_id BIGINT NOT NULL,
-            tip_id TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (user_id, tip_id)
-        )
-    ''')
-    await conn.close()
+    try:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                user_id BIGINT,
+                tip_id TEXT,
+                PRIMARY KEY (user_id, tip_id)
+            )
+        ''')
+    finally:
+        await conn.close()
