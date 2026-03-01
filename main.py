@@ -15,6 +15,10 @@ Security:
     Tokens are sensitive. Consider regenerating your token after testing.
 """
 import os
+print("=== ALL ENVIRONMENT KEYS ===")
+for key in sorted(os.environ.keys()):
+    print(key)
+print("=============================")
 import asyncio
 import logging
 from typing import Dict, List, Any
@@ -3470,6 +3474,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
