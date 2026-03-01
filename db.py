@@ -1,5 +1,7 @@
 import asyncpg
-from main import DATABASE_URL  # or import from config
+
+# Copy the same hardcoded URL from main.py
+DATABASE_URL = "postgresql://postgres:lXwGOXEmpDGGVOBFvrVDEbHtJvzwfdKA@nozomi.proxy.rlwy.net:22016/railway"
 
 async def init_db():
     """Create the user_favorites table if it doesn't exist."""
