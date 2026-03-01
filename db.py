@@ -3,6 +3,9 @@ import os
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+print(f"🔍 Connecting with DATABASE_URL: {repr(DATABASE_URL)}")
+conn = await asyncpg.connect(DATABASE_URL)
+
 async def init_db():
     conn = await asyncpg.connect(DATABASE_URL)
     await conn.execute('''
