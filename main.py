@@ -38,6 +38,13 @@ from db import init_db
 # =========================
 # CONFIG
 # =========================
+print("=== ALL ENVIRONMENT VARIABLES ===")
+for key in sorted(os.environ.keys()):
+    print(key)
+print("=================================")
+print(f"DATABASE_URL from os.environ: {repr(os.environ.get('DATABASE_URL'))}")
+print(f"BOT_TOKEN from os.environ: {repr(os.environ.get('BOT_TOKEN'))}")
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing")
@@ -3463,5 +3470,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
