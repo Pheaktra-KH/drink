@@ -2053,7 +2053,9 @@ class ContentStore:
             for sub, items in submap.items():
                 for tip in items:
                     self.index[tip["id"]] = tip
+        # No in‑memory dictionaries – everything is in the database now
 
+    # ---------- favorites ----------
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
         async with DB_POOL.acquire() as conn:
             try:
@@ -2077,8 +2079,61 @@ class ContentStore:
         async with DB_POOL.acquire() as conn:
             await conn.execute('DELETE FROM user_favorites WHERE user_id = $1', user_id)
 
+    # ---------- tip stats ----------
+    async def _ensure_tip_stats(self, tip_id: str):
+        """Ensure a row exists for this tip_id (insert if not)."""
+        async with DB_POOL.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO tip_stats (tip_id) VALUES ($1)
+                ON CONFLICT (tip_id) DO NOTHING
+            ''', tip_id)
 
-    
+    async def increment_view(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            result = await conn.fetchval('''
+                UPDATE tip_stats SET views = views + 1
+                WHERE tip_id = $1
+                RETURNING views
+            ''', tip_id)
+            return result
+
+    async def increment_fav(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            result = await conn.fetchval('''
+                UPDATE tip_stats SET favorites = favorites + 1
+                WHERE tip_id = $1
+                RETURNING favorites
+            ''', tip_id)
+            return result
+
+    async def increment_share(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            result = await conn.fetchval('''
+                UPDATE tip_stats SET shares = shares + 1
+                WHERE tip_id = $1
+                RETURNING shares
+            ''', tip_id)
+            return result
+
+    async def get_view_count(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            return await conn.fetchval('SELECT views FROM tip_stats WHERE tip_id = $1', tip_id) or 0
+
+    async def get_fav_count(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            return await conn.fetchval('SELECT favorites FROM tip_stats WHERE tip_id = $1', tip_id) or 0
+
+    async def get_share_count(self, tip_id: str) -> int:
+        await self._ensure_tip_stats(tip_id)
+        async with DB_POOL.acquire() as conn:
+            return await conn.fetchval('SELECT shares FROM tip_stats WHERE tip_id = $1', tip_id) or 0
+
+    # ---------- synchronous data access (unchanged) ----------
     def list_subcats(self, category: str) -> List[str]:
         return sorted(list(self.data.get(category, {}).keys()))
 
@@ -2087,61 +2142,6 @@ class ContentStore:
 
     def get_tip(self, tip_id: str) -> Dict[str, Any]:
         return self.index.get(tip_id)
-
-async def _ensure_tip_stats(self, tip_id: str):
-    """Ensure a row exists for this tip_id (insert if not)."""
-    async with DB_POOL.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO tip_stats (tip_id) VALUES ($1)
-            ON CONFLICT (tip_id) DO NOTHING
-        ''', tip_id)
-    
-async def increment_view(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        result = await conn.fetchval('''
-            UPDATE tip_stats SET views = views + 1
-            WHERE tip_id = $1
-            RETURNING views
-        ''', tip_id)
-        return result
-
-async def get_view_count(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        return await conn.fetchval('SELECT views FROM tip_stats WHERE tip_id = $1', tip_id) or 0
-
-async def increment_fav(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        result = await conn.fetchval('''
-            UPDATE tip_stats SET favorites = favorites + 1
-            WHERE tip_id = $1
-            RETURNING favorites
-        ''', tip_id)
-        return result
-
-
-async def get_fav_count(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        return await conn.fetchval('SELECT favorites FROM tip_stats WHERE tip_id = $1', tip_id) or 0
-
-
-async def increment_share(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        result = await conn.fetchval('''
-            UPDATE tip_stats SET shares = shares + 1
-            WHERE tip_id = $1
-            RETURNING shares
-        ''', tip_id)
-        return result
-
-async def get_share_count(self, tip_id: str) -> int:
-    await self._ensure_tip_stats(tip_id)
-    async with DB_POOL.acquire() as conn:
-        return await conn.fetchval('SELECT shares FROM tip_stats WHERE tip_id = $1', tip_id) or 0
 
     def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         q = (query or "").strip().lower()
@@ -2163,7 +2163,6 @@ async def get_share_count(self, tip_id: str) -> int:
         return results
 
 CONTENT = ContentStore(DATA)
-
 
 # =========================
 # HELPERS: RENDER & KEYBOARDS
@@ -3527,6 +3526,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
