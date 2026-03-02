@@ -2463,45 +2463,48 @@ settings_router = Router()
 @start_router.message(F.text == "⚙️ កំណត់")
 @start_router.message(F.text == "⚙️ Settings")
 async def settings_menu(message: Message):
-    lang = get_user_lang(message.from_user.id)
-    await message.answer(TEXTS[lang]["settings_menu"], reply_markup=settings_kb(message.from_user.id))
+    lang = await get_user_lang(message.from_user.id)          # <-- add await
+    kb = await settings_kb(message.from_user.id)              # <-- await keyboard
+    await message.answer(TEXTS[lang]["settings_menu"], reply_markup=kb)
 
 
 @start_router.message(F.text.in_({"សួស្តី", "Hello", "hello", "/start", "Start", "start"}))
 async def greet_echo(message: Message):
     user_id = message.from_user.id
-    # Set default language based on first message
     if message.text in ["Hello", "hello", "Start", "start"]:
-        set_user_lang(user_id, "en")
-    
-    lang = await get_user_lang(user_id)
-    await message.answer(TEXTS[lang]["welcome"], reply_markup=main_menu_kb(user_id))
-
+        await set_user_lang(user_id, "en")                    # <-- await
+    lang = await get_user_lang(user_id)                       # <-- await
+    kb = await main_menu_kb(user_id)                          # <-- await
+    await message.answer(TEXTS[lang]["welcome"], reply_markup=kb)
 
 @start_router.message(F.text == "🏠 មុខងារ")
 @start_router.message(F.text == "🏠 Home")
 async def back_home_message(message: Message):
-    lang = get_user_lang(message.from_user.id)
-    await message.answer(TEXTS[lang]["home"], reply_markup=main_menu_kb(message.from_user.id))
+    lang = await get_user_lang(message.from_user.id)          # <-- await
+    kb = await main_menu_kb(message.from_user.id)             # <-- await
+    await message.answer(TEXTS[lang]["home"], reply_markup=kb)
 
 @start_router.message(CommandStart())
 async def cmd_start(message: Message):
-    lang = get_user_lang(message.from_user.id)
-    await message.answer(TEXTS[lang]["welcome"], reply_markup=main_menu_kb(message.from_user.id))
+    lang = await get_user_lang(message.from_user.id)          # <-- await
+    kb = await main_menu_kb(message.from_user.id)             # <-- await
+    await message.answer(TEXTS[lang]["welcome"], reply_markup=kb)
 
 # --- Generic navigation callbacks
 @nav_router.callback_query(F.data == "nav:home")
 async def nav_home(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+    lang = await get_user_lang(cb.from_user.id)               # <-- await
     await cb.message.edit_text(TEXTS[lang]["home"])
-    await cb.message.answer(TEXTS[lang]["main_menu"], reply_markup=main_menu_kb(cb.from_user.id))
+    kb = await main_menu_kb(cb.from_user.id)                  # <-- await
+    await cb.message.answer(TEXTS[lang]["main_menu"], reply_markup=kb)
     await cb.answer()
 
 @nav_router.callback_query(F.data == "nav:back")
 async def nav_back(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
+    lang = await get_user_lang(cb.from_user.id)               # <-- await
     await cb.message.edit_text(TEXTS[lang]["back"])
-    await cb.message.answer(TEXTS[lang]["main_menu"], reply_markup=main_menu_kb(cb.from_user.id))
+    kb = await main_menu_kb(cb.from_user.id)                  # <-- await
+    await cb.message.answer(TEXTS[lang]["main_menu"], reply_markup=kb)
     await cb.answer()
 
 # --- Drink
@@ -2510,46 +2513,34 @@ async def nav_back(cb: CallbackQuery):
 async def drink_menu(message: Message):
     user_id = message.from_user.id
     subs = CONTENT.list_subcats("drink")
-
-    # Hide Sauce (source) in Drink menu
     if "source" in subs:
         subs.remove("source")
-
-    # Reorder to put new subcategories at the end so they appear in the last row
-    # Move topping, source, ingredients_list to the end
     new_order = []
     for sub in subs:
         if sub not in ["topping", "source", "ingredients_list", "products"]:
             new_order.append(sub)
-    
-    # Add new subcategories at the end
     for sub in ["topping", "source", "ingredients_list", "products"]:
         if sub in subs:
             new_order.append(sub)
 
-    lang = await get_user_lang(user_id)   # <-- await
-    kb = await subcategory_kb("drink", new_order, user_id)  # <-- await
-    await message.answer(TEXTS[lang]["drink_tips"], reply_markup=subcategory_kb("drink", new_order, user_id))
-
+    lang = await get_user_lang(user_id)                         # <-- await
+    kb = await subcategory_kb("drink", new_order, user_id)     # <-- await
+    await message.answer(TEXTS[lang]["drink_tips"], reply_markup=kb)
 
 @drink_router.callback_query(F.data.startswith("tips:cat:drink"))
 async def back_to_drink(cb: CallbackQuery):
     user_id = cb.from_user.id
     subs = CONTENT.list_subcats("drink")
-
     if "source" in subs:
         subs.remove("source")
-
-    lang = get_user_lang(user_id)
-    await cb.message.edit_text(TEXTS[lang]["drink_tips"], reply_markup=subcategory_kb("drink", subs, user_id))
+    lang = await get_user_lang(user_id)                         # <-- await
+    kb = await subcategory_kb("drink", subs, user_id)          # <-- await
+    await cb.message.edit_text(TEXTS[lang]["drink_tips"], reply_markup=kb)
     await cb.answer()
-
 
 @drink_router.callback_query(F.data.startswith("tips:sub:drink:"))
 async def open_drink_sub(cb: CallbackQuery):
-    # data format: tips:sub:{category}:{subcategory}:{page}
     parts = cb.data.split(":")
-    # safety parse
     if len(parts) != 5:
         await cb.answer()
         return
@@ -2559,48 +2550,38 @@ async def open_drink_sub(cb: CallbackQuery):
     except ValueError:
         page = 1
     items = CONTENT.list_items(category, subcategory)
-    await cb.message.edit_text(
-        f"🍹 {subcategory.capitalize()}",
-        reply_markup=item_list_kb(category, subcategory, items, page)
-    )
+    kb = await item_list_kb(category, subcategory, items, page)   # <-- await
+    await cb.message.edit_text(f"🍹 {subcategory.capitalize()}", reply_markup=kb)
     await cb.answer()
 
-
-# --- Bakery
 @bakery_router.message(F.text == "🧁 គន្លឹះនំ")
 @bakery_router.message(F.text == "🧁 Bakery Tips")
 async def bakery_menu(message: Message):
     user_id = message.from_user.id
     subs = CONTENT.list_subcats("bakery")
-
-    # Hide Topping in Bakery menu
     if "topping" in subs:
         subs.remove("topping")
-
-    # Reorder to put new subcategories at the end
     new_order = []
     for sub in subs:
         if sub not in ["topping", "source", "ingredients_list", "products"]:
             new_order.append(sub)
-    
-    # Add new subcategories at the end
     for sub in ["topping", "source", "ingredients_list", "products"]:
         if sub in subs:
             new_order.append(sub)
 
-    lang = get_user_lang(user_id)
-    await message.answer(TEXTS[lang]["bakery_tips"], reply_markup=subcategory_kb("bakery", new_order, user_id))
+    lang = await get_user_lang(user_id)                         # <-- await
+    kb = await subcategory_kb("bakery", new_order, user_id)     # <-- await
+    await message.answer(TEXTS[lang]["bakery_tips"], reply_markup=kb)
 
 @bakery_router.callback_query(F.data.startswith("tips:cat:bakery"))
 async def back_to_bakery(cb: CallbackQuery):
     user_id = cb.from_user.id
     subs = CONTENT.list_subcats("bakery")
-
     if "topping" in subs:
         subs.remove("topping")
-
-    lang = get_user_lang(user_id)
-    await cb.message.edit_text(TEXTS[lang]["bakery_tips"], reply_markup=subcategory_kb("bakery", subs, user_id))
+    lang = await get_user_lang(user_id)                         # <-- await
+    kb = await subcategory_kb("bakery", subs, user_id)          # <-- await
+    await cb.message.edit_text(TEXTS[lang]["bakery_tips"], reply_markup=kb)
     await cb.answer()
 
 # --- Subcategory handlers
@@ -2617,9 +2598,10 @@ async def open_sub(cb: CallbackQuery):
     except ValueError:
         page = 1
     items = CONTENT.list_items(category, subcategory)
+    kb = await item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)  # <-- await
     await cb.message.edit_text(
         f"{'🍹' if category == 'drink' else '🧁'} {subcategory.capitalize()}",
-        reply_markup=item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)
+        reply_markup=kb
     )
     await cb.answer()
 
@@ -2635,12 +2617,9 @@ async def open_bakery_sub(cb: CallbackQuery):
     except ValueError:
         page = 1
     items = CONTENT.list_items(category, subcategory)
-    await cb.message.edit_text(
-        f"🧁 {subcategory.capitalize()}",
-        reply_markup=item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)  # ADD user_id
-    )
+    kb = await item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)  # <-- await
+    await cb.message.edit_text(f"🧁 {subcategory.capitalize()}", reply_markup=kb)
     await cb.answer()
-
 
 # =========================
 # NEW FUNCTIONS FOR INGREDIENTS LIST ALBUM VIEW
@@ -2729,7 +2708,7 @@ def ingredients_album_kb(tip_id_str: str, category: str, subcategory: str, curre
 @bakery_router.callback_query(F.data.startswith("tips:item:"))
 async def open_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:item:", "", 1)
-    tip = CONTENT.get_tip(tip_id_str)
+    await CONTENT.increment_view(tip_id_str)          # <-- await
     
     if not tip:
         await cb.answer("Content not found", show_alert=True)
@@ -2774,7 +2753,8 @@ async def open_tip(cb: CallbackQuery):
     text = await render_tip_card(tip, view_count, fav_count, share_count, cb.from_user.id)  # <-- await
     back_payload = f"tips:sub:{tip['category']}:{tip['subcategory']}:1"
     video_url = tip.get("video_url", None)
-    kb = await tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id)  # <-- await
+    kb = await tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id)   # <-- await
+    await cb.message.answer(text, reply_markup=kb)                                 # <-- use kb
     await cb.message.answer(text, reply_markup=tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id))
     await cb.answer()
 
@@ -3057,7 +3037,7 @@ async def handle_ingredient_pagination(cb: CallbackQuery):
 async def fav_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:fav:", "", 1)
     added = await CONTENT.add_fav(cb.from_user.id, tip_id_str)
-    lang = get_user_lang(cb.from_user.id)
+    lang = await get_user_lang(cb.from_user.id)            # <-- await
     await cb.answer(TEXTS[lang]["saved"] if added else TEXTS[lang]["already_saved"])
 
 # --- Share Tip Handler
@@ -3066,17 +3046,13 @@ async def fav_tip(cb: CallbackQuery):
 async def share_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:share:", "", 1)
     tip = CONTENT.get_tip(tip_id_str)
-    
     if not tip:
         await cb.answer("Content not found", show_alert=True)
         return
-    
     await CONTENT.increment_share(tip_id_str)
-    
     bot_username = (await cb.bot.get_me()).username
     title = tip.get("title", "Untitled")
-    lang = get_user_lang(cb.from_user.id)
-    
+    lang = await get_user_lang(cb.from_user.id)            # <-- await
     share_text = f"""
 {TEXTS[lang]["share_title"]}
 📘 {title}
@@ -3086,7 +3062,6 @@ async def share_tip(cb: CallbackQuery):
 
 #Tips #Recipe
 """
-    
     await cb.message.answer(share_text)
     await cb.answer("✅ Share text created")
 
@@ -3094,7 +3069,7 @@ async def share_tip(cb: CallbackQuery):
 @search_router.message(F.text == "🔎 ស្វែងរក")
 @search_router.message(F.text == "🔎 Search")
 async def search_entry(message: Message, state: FSMContext):
-    lang = get_user_lang(message.from_user.id)
+    lang = await get_user_lang(message.from_user.id)       # <-- await
     await message.answer(TEXTS[lang]["search_prompt"])
     await state.set_state(SearchStates.waiting_query)
 
@@ -3103,30 +3078,29 @@ async def do_search(message: Message, state: FSMContext):
     q = message.text
     results = CONTENT.search(q)
     await state.clear()
-    
-    lang = get_user_lang(message.from_user.id)
-    
+    lang = await get_user_lang(message.from_user.id)       # <-- await
     if not results:
         await message.answer(TEXTS[lang]["no_results"])
         return
-    await message.answer(TEXTS[lang]["search_results"], reply_markup=search_results_kb(results, message.from_user.id))
+    kb = await search_results_kb(results, message.from_user.id)   # <-- await
+    await message.answer(TEXTS[lang]["search_results"], reply_markup=kb)
 
 # --- Favorites
 @favorites_router.message(F.text == "⭐ រក្សាទុក")
 @favorites_router.message(F.text == "⭐ Favorites")
 async def show_favorites(message: Message):
     tips = await CONTENT.get_favs(message.from_user.id)
-    lang = get_user_lang(message.from_user.id)
+    lang = await get_user_lang(message.from_user.id)       # <-- await
     if not tips:
         await message.answer(TEXTS[lang]["no_favorites"])
         return
-    await message.answer(TEXTS[lang]["favorites_list"], reply_markup=favorites_kb(tips, message.from_user.id))
+    kb = await favorites_kb(tips, message.from_user.id)    # <-- await
+    await message.answer(TEXTS[lang]["favorites_list"], reply_markup=kb)
 
 # --- Settings Handlers
 @settings_router.callback_query(F.data == "settings:language")
 async def settings_language(cb: CallbackQuery):
-    lang = get_user_lang(cb.from_user.id)
-    
+    lang = await get_user_lang(cb.from_user.id)            # <-- await
     lang_text = f"""🌐 **Select Language**
 
 Current: {'Khmer' if lang == 'km' else 'English'}
@@ -3134,13 +3108,11 @@ Current: {'Khmer' if lang == 'km' else 'English'}
 **Supported languages:**
 🇰🇭 Khmer - For local users
 🇬🇧 English - For international users"""
-
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇰🇭 ខ្មែរ", callback_data="lang:km")],
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
         [InlineKeyboardButton(text="◀️ " + TEXTS[lang]["back"], callback_data="settings:back")]
     ])
-    
     await cb.message.edit_text(lang_text, reply_markup=kb)
     await cb.answer()
 
@@ -3149,19 +3121,11 @@ Current: {'Khmer' if lang == 'km' else 'English'}
 async def change_language(cb: CallbackQuery):
     lang_code = cb.data.split(":")[1]
     user_id = cb.from_user.id
-    
-    set_user_lang(user_id, lang_code)
-    lang = get_user_lang(user_id)
-    
-    # Delete the language selection message
+    await set_user_lang(user_id, lang_code)                # <-- await
+    lang = await get_user_lang(user_id)                    # <-- await
     await cb.message.delete()
-    
-    # Send confirmation and main menu
-    await cb.message.answer(
-        TEXTS[lang]["welcome"],
-        reply_markup=main_menu_kb(user_id)
-    )
-    
+    kb = await main_menu_kb(user_id)                       # <-- await
+    await cb.message.answer(TEXTS[lang]["welcome"], reply_markup=kb)
     await cb.answer(TEXTS[lang]["lang_changed"])
 
 # Help/Instructions
@@ -3191,7 +3155,8 @@ async def settings_help(cb: CallbackQuery):
 - បូតនេះឥតគិតថ្លៃទេ
 - អាចប្រើបានគ្រប់ពេល
 - ទិន្នន័យត្រូវបានរក្សាទុកតែក្នុងកំឡុងពេលប្រើប្រាស់ប៉ុណ្ណោះ"""
-    
+
+    kb = await settings_kb(cb.from_user.id)                # <-- await
     await cb.message.edit_text(help_text, reply_markup=settings_kb(cb.from_user.id))
     await cb.answer()
 
@@ -3352,9 +3317,10 @@ async def settings_confirm_clear_favs(cb: CallbackQuery):
 # Back to settings menu
 @settings_router.callback_query(F.data == "settings:back")
 async def settings_back(cb: CallbackQuery):
-  lang = get_user_lang(cb.from_user.id)
-  await cb.message.edit_text(TEXTS[lang]["settings_menu"], reply_markup=settings_kb(cb.from_user.id))
-  await cb.answer()
+    lang = await get_user_lang(cb.from_user.id)            # <-- await
+    kb = await settings_kb(cb.from_user.id)                # <-- await
+    await cb.message.edit_text(TEXTS[lang]["settings_menu"], reply_markup=kb)
+    await cb.answer()
 
 # Units selection (placeholder)
 @settings_router.callback_query(F.data == "settings:units")
@@ -3440,6 +3406,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
