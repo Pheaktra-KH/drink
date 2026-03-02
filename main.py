@@ -2025,20 +2025,29 @@ TEXTS = {
 # LANGUAGE MANAGEMENT
 # =========================
 # Store user language preferences
-user_languages: Dict[int, str] = {}
+# =========================
+# LANGUAGE MANAGEMENT (Database)
+# =========================
+async def get_user_lang(user_id: int) -> str:
+    """Get user's language preference from database."""
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow('SELECT language_code FROM user_languages WHERE user_id = $1', user_id)
+        return row['language_code'] if row else DEFAULT_LANG
 
-def get_user_lang(user_id: int) -> str:
-    """Get user's language preference"""
-    return user_languages.get(user_id, DEFAULT_LANG)
+async def set_user_lang(user_id: int, lang: str):
+    """Set user's language preference in database."""
+    if lang not in ["km", "en"]:
+        return
+    async with DB_POOL.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO user_languages (user_id, language_code)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET language_code = $2
+        ''', user_id, lang)
 
-def set_user_lang(user_id: int, lang: str):
-    """Set user's language preference"""
-    if lang in ["km", "en"]:
-        user_languages[user_id] = lang
-
-def get_text(user_id: int, key: str) -> str:
-    """Get translated text for user"""
-    lang = get_user_lang(user_id)
+async def get_text(user_id: int, key: str) -> str:
+    """Get translated text for user."""
+    lang = await get_user_lang(user_id)
     return TEXTS[lang].get(key, key)
 
 
@@ -2167,79 +2176,59 @@ CONTENT = ContentStore(DATA)
 # =========================
 # HELPERS: RENDER & KEYBOARDS
 # =========================
-def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: int = 0, share_count: int = 0, user_id: int = None) -> str:
-    """Render tip card with user's language"""
+async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: int = 0, share_count: int = 0, user_id: int = None) -> str:
     title = tip.get("title", "Untitled")
     subcat = tip.get("subcategory", "")
     ingredients: List[Dict[str, Any]] = tip.get("ingredients", [])
     steps: List[str] = tip.get("steps", [])
-    
-    # Get language-specific labels
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     type_label = TEXTS[lang]["type_label"]
     ingredients_label = TEXTS[lang]["ingredients"]
     how_to_make_label = TEXTS[lang]["how_to_make"]
     times_label = TEXTS[lang]["times"]
-
     lines: List[str] = []
     lines.append(f"📘 {title}")
     lines.append(f"{type_label}: {subcat}")
     lines.append(f"👁️ {view_count} {times_label} | ⭐ {fav_count} | 📤 {share_count}\n")
-    
     lines.append(ingredients_label)
-    
-    # Calculate the total width for each line part
     max_prefix_length = 0
     formatted_ingredients = []
-    
     for r in ingredients:
         no = str(r.get("no", ""))
         ing = str(r.get("ingredient", ""))
         amt = str(r.get("amount", ""))
         uom = str(r.get("uom", ""))
         rem = str(r.get("remark", ""))
-        
         prefix = f"{no}. {ing}"
         max_prefix_length = max(max_prefix_length, len(prefix))
-        
         formatted_ingredients.append({
             "prefix": prefix,
             "amount": amt,
             "uom": uom,
             "remark": rem
         })
-    
     target_column = max_prefix_length + 5
-    
     for item in formatted_ingredients:
         prefix = item["prefix"]
         amt = item["amount"]
         uom = item["uom"]
         rem = item["remark"]
-        
         dots_needed = target_column - len(prefix)
         if dots_needed < 1:
             dots_needed = 1
-        
         dots = "." * dots_needed
-        
         if rem:
             line = f"{prefix}{dots}{amt}{uom} ({rem})"
         else:
             line = f"{prefix}{dots}{amt}{uom}"
-        
         lines.append(line)
-
     lines.append(f"\n{how_to_make_label}")
     for i, s in enumerate(steps, start=1):
         lines.append(f"{i}) {s}")
-
     return "\n".join(lines)
 
-def render_ingredient_card(tip: Dict[str, Any], current_index: int, total_count: int, user_id: int = None) -> str:
-    """Render ingredient card with price, seller info, and pagination"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def render_ingredient_card(tip: Dict[str, Any], current_index: int, total_count: int, user_id: int = None) -> str:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     title = tip.get("title", "Untitled")
     price = tip.get("price", "Check market")
     market = tip.get("market", "Local markets")
@@ -2248,44 +2237,29 @@ def render_ingredient_card(tip: Dict[str, Any], current_index: int, total_count:
     seller_telegram = tip.get("seller_telegram", "")
     seller_phone = tip.get("seller_phone", "")
     description = tip.get("description", "")
-    
     lines: List[str] = []
     lines.append(f"📦 {title}\n")
-    
     if price:
         lines.append(f"💰 Price: {price}")
-    
     if market:
         lines.append(f"📍 Market: {market}")
-    
     if available:
         lines.append(f"🛒 Available: {available}")
-    
     lines.append(f"\n📞 Contact Seller:")
-    
     if seller_name:
         lines.append(f"👤 Vendor: {seller_name}")
-    
     if seller_telegram:
-        # Remove @ if present and create link
         telegram_username = seller_telegram.lstrip('@')
         lines.append(f"📱 Telegram: <a href='https://t.me/{telegram_username}'>{seller_telegram}</a>")
-    
     if seller_phone:
         lines.append(f"📞 Phone: {seller_phone}")
-    
     if description:
         lines.append(f"\n📋 Description:\n{description}")
-    
     lines.append(f"\n📄 Item {current_index + 1} of {total_count}")
-    
     return "\n".join(lines)
 
-
-def main_menu_kb(user_id: int = None) -> ReplyKeyboardMarkup:
-    """Main menu keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def main_menu_kb(user_id: int = None) -> ReplyKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=TEXTS[lang]["drink_tips"]), 
@@ -2297,28 +2271,19 @@ def main_menu_kb(user_id: int = None) -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-def subcategory_kb(category: str, subcats: List[str], user_id: int = None) -> InlineKeyboardMarkup:
-    """Subcategory keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def subcategory_kb(category: str, subcats: List[str], user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     rows: List[List[InlineKeyboardButton]] = []
-    
-    # Separate new subcategories (topping, source, ingredients_list) from old ones
     new_subs = []
     old_subs = []
-    
     for sub in subcats:
         if sub in ["topping", "source", "ingredients_list", "products"]:
             new_subs.append(sub)
         else:
             old_subs.append(sub)
-    
-    # Create grid for OLD subcategories: 2 buttons per row
     for i in range(0, len(old_subs), 2):
         row = []
         s1 = old_subs[i]
-        
-        # Use translated names for specific subcategories
         if s1 == "topping":
             label1 = TEXTS[lang]["topping"]
         elif s1 == "source":
@@ -2327,9 +2292,7 @@ def subcategory_kb(category: str, subcats: List[str], user_id: int = None) -> In
             label1 = TEXTS[lang]["ingredients_list"]
         else:
             label1 = s1.capitalize() if s1.isascii() else s1
-            
         row.append(InlineKeyboardButton(text=label1, callback_data=f"tips:sub:{category}:{s1}:1"))
-        
         if i + 1 < len(old_subs):
             s2 = old_subs[i + 1]
             if s2 == "topping":
@@ -2341,10 +2304,7 @@ def subcategory_kb(category: str, subcats: List[str], user_id: int = None) -> In
             else:
                 label2 = s2.capitalize() if s2.isascii() else s2
             row.append(InlineKeyboardButton(text=label2, callback_data=f"tips:sub:{category}:{s2}:1"))
-        
         rows.append(row)
-    
-    # Create a SINGLE row for NEW subcategories: 3 buttons in one row
     if new_subs:
         new_row = []
         for sub in new_subs:
@@ -2354,137 +2314,94 @@ def subcategory_kb(category: str, subcats: List[str], user_id: int = None) -> In
                 label = TEXTS[lang]["source"]
             elif sub == "ingredients_list":
                 label = TEXTS[lang]["ingredients_list"]
-            elif sub == "products":                         # <-- ADD THIS BLOCK
+            elif sub == "products":
                 label = TEXTS[lang]["products"]
             else:
                 label = sub.capitalize() if sub.isascii() else sub
-                
             new_row.append(InlineKeyboardButton(text=label, callback_data=f"tips:sub:{category}:{sub}:1"))
-        
-        # Ensure we have exactly 3 buttons in this row
-        # If we have less than 3, fill with empty buttons or adjust layout
         rows.append(new_row)
-    
-    # Add navigation buttons
     rows.append([
         InlineKeyboardButton(text=TEXTS[lang]["back"], callback_data="nav:back"),
         InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
     ])
-    
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def item_list_kb(category: str, subcategory: str, items: List[Dict[str, Any]], page: int, page_size: int = 12, user_id: int = None) -> InlineKeyboardMarkup:
-    """Item list keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def item_list_kb(category: str, subcategory: str, items: List[Dict[str, Any]], page: int, page_size: int = 12, user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     start = (page - 1) * page_size
     page_items = items[start:start + page_size]
     rows: List[List[InlineKeyboardButton]] = []
-    
-    # SPECIAL HANDLING: For specific subcategories in drink and bakery, use 3 columns
     drink_3col_subs = ["cafe", "ingredients_list", "tea", "soda", "frappe", "topping", "source", "products"]
     bakery_3col_subs = ["cake", "pastry", "bread", "cookie", "topping", "source", "ingredients_list", "products"]
-    
     if category == "drink" and subcategory in drink_3col_subs:
         num_columns = 3
     elif category == "bakery" and subcategory in bakery_3col_subs:
         num_columns = 3
     else:
-        # Original logic for other categories
         avg_length = sum(len(tip.get("title", "")) for tip in page_items) / max(len(page_items), 1)
-        if avg_length > 15:
-            num_columns = 2
-        else:
-            num_columns = 3
-    
+        num_columns = 2 if avg_length > 15 else 3
     current_row = []
     for i, tip in enumerate(page_items):
         current_row.append(InlineKeyboardButton(
             text=tip.get("title", ""), 
             callback_data=f"tips:item:{tip['id']}"
         ))
-        
         if len(current_row) == num_columns or i == len(page_items) - 1:
             rows.append(current_row)
             current_row = []
-    
     nav: List[InlineKeyboardButton] = []
     if page > 1:
         nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"tips:sub:{category}:{subcategory}:{page-1}"))
-    
     total_pages = (len(items) + page_size - 1) // page_size
     if total_pages > 1:
         nav.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"))
-    
     if start + page_size < len(items):
         nav.append(InlineKeyboardButton(text="➡️", callback_data=f"tips:sub:{category}:{subcategory}:{page+1}"))
-    
     if nav:
         rows.append(nav)
-    
     rows.append([
         InlineKeyboardButton(text=TEXTS[lang]["back"], callback_data=f"tips:cat:{category}"),
         InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
     ])
-    
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def tip_card_kb(tip_id_str: str, back_payload: str, video_url: str = None, user_id: int = None) -> InlineKeyboardMarkup:
-    """Tip card keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def tip_card_kb(tip_id_str: str, back_payload: str, video_url: str = None, user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     buttons = []
     first_row = []
-    
     if video_url and video_url.strip():
         first_row.append(InlineKeyboardButton(text=TEXTS[lang]["video"], url=video_url))
     else:
         first_row.append(InlineKeyboardButton(text=TEXTS[lang]["no_video"], callback_data="noop"))
-    
     first_row.append(InlineKeyboardButton(text=TEXTS[lang]["save"], callback_data=f"tips:fav:{tip_id_str}"))
     first_row.append(InlineKeyboardButton(text=TEXTS[lang]["share"], callback_data=f"tips:share:{tip_id_str}"))
-    
     buttons.append(first_row)
     buttons.append([
         InlineKeyboardButton(text=TEXTS[lang]["back"], callback_data=back_payload),
         InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
     ])
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def ingredient_card_kb(tip_id_str: str, prev_tip_id: str = None, next_tip_id: str = None, 
-                      back_payload: str = None, user_id: int = None) -> InlineKeyboardMarkup:
-    """Ingredient card keyboard with pagination and save button"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def ingredient_card_kb(tip_id_str: str, prev_tip_id: str = None, next_tip_id: str = None, 
+                             back_payload: str = None, user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     buttons = []
-    
-    # First row: Previous | Save | Next
     first_row = []
-    
     if prev_tip_id:
         first_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"tips:item:{prev_tip_id}"))
-    
     first_row.append(InlineKeyboardButton(text=TEXTS[lang]["save"], callback_data=f"tips:fav:{tip_id_str}"))
-    
     if next_tip_id:
         first_row.append(InlineKeyboardButton(text="➡️", callback_data=f"tips:item:{next_tip_id}"))
-    
     buttons.append(first_row)
-    
-    # Second row: Back button
     if back_payload:
         buttons.append([
             InlineKeyboardButton(text="◀️ " + TEXTS[lang]["back"], callback_data=back_payload),
             InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
         ])
-    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def search_results_kb(results: List[Dict[str, Any]], user_id: int = None) -> InlineKeyboardMarkup:
-    """Search results keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def search_results_kb(results: List[Dict[str, Any]], user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     rows: List[List[InlineKeyboardButton]] = []
     for tip in results[:10]:
         rows.append([InlineKeyboardButton(text=tip["title"], callback_data=f"tips:item:{tip['id']}")])
@@ -2493,10 +2410,8 @@ def search_results_kb(results: List[Dict[str, Any]], user_id: int = None) -> Inl
     rows.append([InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def favorites_kb(favs: List[Dict[str, Any]], user_id: int = None) -> InlineKeyboardMarkup:
-    """Favorites keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def favorites_kb(favs: List[Dict[str, Any]], user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     rows: List[List[InlineKeyboardButton]] = []
     for tip in favs[:10]:
         rows.append([InlineKeyboardButton(text=tip["title"], callback_data=f"tips:item:{tip['id']}")])
@@ -2505,10 +2420,8 @@ def favorites_kb(favs: List[Dict[str, Any]], user_id: int = None) -> InlineKeybo
     rows.append([InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def settings_kb(user_id: int = None) -> InlineKeyboardMarkup:
-    """Settings keyboard with user's language"""
-    lang = get_user_lang(user_id) if user_id else DEFAULT_LANG
-    
+async def settings_kb(user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=TEXTS[lang]["about"], callback_data="settings:about")],
         [InlineKeyboardButton(text=TEXTS[lang]["help"], callback_data="settings:help")],
@@ -2527,7 +2440,6 @@ def settings_kb(user_id: int = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=TEXTS[lang]["clear_favs"], callback_data="settings:clear_favs")],
         [InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home")]
     ])
-
 # =========================
 # STATES
 # =========================
@@ -2562,7 +2474,7 @@ async def greet_echo(message: Message):
     if message.text in ["Hello", "hello", "Start", "start"]:
         set_user_lang(user_id, "en")
     
-    lang = get_user_lang(user_id)
+    lang = await get_user_lang(user_id)
     await message.answer(TEXTS[lang]["welcome"], reply_markup=main_menu_kb(user_id))
 
 
@@ -2615,7 +2527,8 @@ async def drink_menu(message: Message):
         if sub in subs:
             new_order.append(sub)
 
-    lang = get_user_lang(user_id)
+    lang = await get_user_lang(user_id)   # <-- await
+    kb = await subcategory_kb("drink", new_order, user_id)  # <-- await
     await message.answer(TEXTS[lang]["drink_tips"], reply_markup=subcategory_kb("drink", new_order, user_id))
 
 
@@ -2858,9 +2771,10 @@ async def open_tip(cb: CallbackQuery):
         seed = tip["id"].replace("/", "_")
         await cb.message.answer_photo(photo=f"https://picsum.photos/seed/{seed}/640/480", caption=tip["title"])
 
-    text = render_tip_card(tip, view_count, fav_count, share_count, cb.from_user.id)
+    text = await render_tip_card(tip, view_count, fav_count, share_count, cb.from_user.id)  # <-- await
     back_payload = f"tips:sub:{tip['category']}:{tip['subcategory']}:1"
     video_url = tip.get("video_url", None)
+    kb = await tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id)  # <-- await
     await cb.message.answer(text, reply_markup=tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id))
     await cb.answer()
 
@@ -2923,7 +2837,7 @@ async def show_ingredient_page(cb: CallbackQuery, tip: Dict[str, Any], ingredien
     total_count = len(ingredients)
     
     # Create a detailed card for this ingredient
-    lang = get_user_lang(cb.from_user.id)
+    lang = await get_user_lang(cb.from_user.id)
     
     # Prepare the caption
     lines = []
@@ -3526,6 +3440,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
