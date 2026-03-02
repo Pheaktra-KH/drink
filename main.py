@@ -2077,6 +2077,13 @@ class ContentStore:
         tip_ids = [row['tip_id'] for row in rows]
         return [self.index[tid] for tid in tip_ids if tid in self.index]
 
+    async def clear_favs(self, user_id: int) -> None:
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            await conn.execute('DELETE FROM user_favorites WHERE user_id = $1', user_id)
+        finally:
+            await conn.close()
+
     def list_subcats(self, category: str) -> List[str]:
         return sorted(list(self.data.get(category, {}).keys()))
 
@@ -3394,7 +3401,7 @@ async def settings_clear_favs(cb: CallbackQuery):
 
 @settings_router.callback_query(F.data == "settings:confirm_clear_favs")
 async def settings_confirm_clear_favs(cb: CallbackQuery):
-    # TODO: implement deletion from DB
+    await CONTENT.clear_favs(cb.from_user.id)
     await cb.message.edit_text(
         "✅ បានលុបគន្លឹះដែលរក្សាទុកទាំងអស់ដោយជោគជ័យ!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -3453,6 +3460,12 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
+    DB_POOL = None
+
+async def init_db_pool():
+    global DB_POOL
+    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=5, max_size=20)
+    
     # Register routers
     dp.include_router(start_router)
     dp.include_router(nav_router)
@@ -3469,6 +3482,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
