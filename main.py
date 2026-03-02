@@ -3446,17 +3446,8 @@ async def settings_units(cb: CallbackQuery):
 # =========================
 # APP BOOTSTRAP
 # =========================
-async def main():
-    await init_db()  # create table if not exists
-    await init_db_pool()
-    print("Database initialized successfully")
-    logging.basicConfig(level=logging.INFO)
-    if not BOT_TOKEN or not BOT_TOKEN.strip():
-        raise RuntimeError("BOT_TOKEN is missing")
 
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(storage=MemoryStorage())
-
+# Define init_db_pool at top level (outside main)
 async def init_db_pool():
     global DB_POOL
     DB_POOL = await asyncpg.create_pool(
@@ -3466,7 +3457,17 @@ async def init_db_pool():
         command_timeout=60
     )
     print("Database connection pool created")
-    
+
+async def main():
+    await init_db()          # create table
+    await init_db_pool()     # create pool
+    print("Database initialized successfully")
+
+    logging.basicConfig(level=logging.INFO)
+
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(storage=MemoryStorage())
+
     # Register routers
     dp.include_router(start_router)
     dp.include_router(nav_router)
@@ -3474,17 +3475,19 @@ async def init_db_pool():
     dp.include_router(bakery_router)
     dp.include_router(search_router)
     dp.include_router(favorites_router)
-    dp.include_router(settings_router)  # Add this line
+    dp.include_router(settings_router)
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await DB_POOL.close()
+        print("Database pool closed")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
-
-
 
 
 
