@@ -15,6 +15,8 @@ Security:
     Tokens are sensitive. Consider regenerating your token after testing.
 """
 import os
+# Global database connection pool
+DB_POOL = None
 print("=== ALL ENVIRONMENT KEYS ===")
 for key in sorted(os.environ.keys()):
     print(key)
@@ -2057,32 +2059,27 @@ class ContentStore:
         self.share_counts: Dict[str, int] = {}
 
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
-        conn = await asyncpg.connect(DATABASE_URL)
-        try:
-            result = await conn.execute('''
-                INSERT INTO user_favorites (user_id, tip_id)
-                VALUES ($1, $2)
-                ON CONFLICT DO NOTHING
-            ''', user_id, tip_id)
-            await conn.close()
-            return 'INSERT 0 1' in result
-        except:
-            await conn.close()
-            return False
+        async with DB_POOL.acquire() as conn:
+            try:
+                result = await conn.execute('''
+                    INSERT INTO user_favorites (user_id, tip_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT DO NOTHING
+                ''', user_id, tip_id)
+                return 'INSERT 0 1' in result
+            except Exception as e:
+                print(f"Error adding favorite: {e}")
+                return False
 
     async def get_favs(self, user_id: int) -> List[Dict[str, Any]]:
-        conn = await asyncpg.connect(DATABASE_URL)
-        rows = await conn.fetch('SELECT tip_id FROM user_favorites WHERE user_id = $1', user_id)
-        await conn.close()
-        tip_ids = [row['tip_id'] for row in rows]
-        return [self.index[tid] for tid in tip_ids if tid in self.index]
+        async with DB_POOL.acquire() as conn:
+            rows = await conn.fetch('SELECT tip_id FROM user_favorites WHERE user_id = $1', user_id)
+            tip_ids = [row['tip_id'] for row in rows]
+            return [self.index[tid] for tid in tip_ids if tid in self.index]
 
     async def clear_favs(self, user_id: int) -> None:
-        conn = await asyncpg.connect(DATABASE_URL)
-        try:
+        async with DB_POOL.acquire() as conn:
             await conn.execute('DELETE FROM user_favorites WHERE user_id = $1', user_id)
-        finally:
-            await conn.close()
 
     def list_subcats(self, category: str) -> List[str]:
         return sorted(list(self.data.get(category, {}).keys()))
@@ -3410,7 +3407,6 @@ async def settings_confirm_clear_favs(cb: CallbackQuery):
     )
     await cb.answer()
 
-
 # Back to settings menu
 @settings_router.callback_query(F.data == "settings:back")
 async def settings_back(cb: CallbackQuery):
@@ -3452,6 +3448,7 @@ async def settings_units(cb: CallbackQuery):
 # =========================
 async def main():
     await init_db()  # create table if not exists
+    await init_db_pool()
     print("Database initialized successfully")
     logging.basicConfig(level=logging.INFO)
     if not BOT_TOKEN or not BOT_TOKEN.strip():
@@ -3460,11 +3457,15 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    DB_POOL = None
-
 async def init_db_pool():
     global DB_POOL
-    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=5, max_size=20)
+    DB_POOL = await asyncpg.create_pool(
+        DATABASE_URL,
+        min_size=5,
+        max_size=20,
+        command_timeout=60
+    )
+    print("Database connection pool created")
     
     # Register routers
     dp.include_router(start_router)
@@ -3482,6 +3483,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
