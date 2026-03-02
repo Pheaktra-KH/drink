@@ -3488,17 +3488,20 @@ async def init_db_pool():
     print("Database connection pool created")
 
 async def main():
-    await init_db()          # create table
-    await init_db_pool()     # create pool
+    await init_db()
+    await init_db_pool()
     print("Database initialized successfully")
 
-async with DB_POOL.acquire() as conn:
-    for tip_id in CONTENT.index.keys():
-        await conn.execute('''
-            INSERT INTO tip_stats (tip_id) VALUES ($1)
-            ON CONFLICT DO NOTHING
-        ''', tip_id)
-    
+    # === Optional: Pre‑initialize stats for all tips ===
+    async with DB_POOL.acquire() as conn:
+        for tip_id in CONTENT.index.keys():
+            await conn.execute('''
+                INSERT INTO tip_stats (tip_id) VALUES ($1)
+                ON CONFLICT (tip_id) DO NOTHING
+            ''', tip_id)
+    print("Tip stats initialized for all tips")
+    # ==================================================
+
     logging.basicConfig(level=logging.INFO)
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -3524,6 +3527,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
