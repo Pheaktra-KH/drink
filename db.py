@@ -1,6 +1,6 @@
 import asyncpg
 import os
-import json  # for storing ingredients as JSON
+import json
 
 DATABASE_URL = "postgresql://postgres:lXwGOXEmpDGGVOBFvrVDEbHtJvzwfdKA@nozomi.proxy.rlwy.net:22016/railway"
 
@@ -39,127 +39,42 @@ async def init_db():
             )
         ''')
 
-        # NEW: categories table
+        # categories table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS categories (
                 id SERIAL PRIMARY KEY,
-                category TEXT NOT NULL,      -- 'drink' or 'bakery'
+                category TEXT NOT NULL,
                 subcategory TEXT NOT NULL,
                 UNIQUE(category, subcategory)
             )
         ''')
 
-        # NEW: tips table
+        # tips table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS tips (
-                id TEXT PRIMARY KEY,          -- e.g., 'drink/cafe/iced_latte'
+                id TEXT PRIMARY KEY,
                 category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
                 title TEXT NOT NULL,
-                ingredients JSONB NOT NULL,   -- store the ingredients array as JSON
-                steps JSONB NOT NULL,         -- store steps array as JSON
+                ingredients JSONB NOT NULL,
+                steps JSONB NOT NULL,
                 picture_file_id TEXT,
                 video_url TEXT
             )
         ''')
-
-        # Search table for full‑text search
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS tips_search (
-                tip_id TEXT PRIMARY KEY REFERENCES tips(id) ON DELETE CASCADE,
-                tsv tsvector
-            )
-        ''')
-        
-        # Create a trigger to update tips_search when tips changes
-        await conn.execute('''
-            CREATE OR REPLACE FUNCTION tips_search_update() RETURNS trigger AS $$
-            BEGIN
-                -- Insert or update the search row with tsvector built from tip and its category
-                INSERT INTO tips_search (tip_id, tsv)
-                SELECT NEW.id,
-                       setweight(to_tsvector('english', coalesce(NEW.title,'')), 'A') ||
-                       setweight(to_tsvector('english', coalesce(c.category,'')), 'B') ||
-                       setweight(to_tsvector('english', coalesce(c.subcategory,'')), 'B') ||
-                       setweight(to_tsvector('english', coalesce(
-                           (SELECT string_agg(value->>'ingredient', ' ') FROM jsonb_array_elements(NEW.ingredients)), ''
-                       )), 'C')
-                FROM categories c WHERE c.id = NEW.category_id
-                ON CONFLICT (tip_id) DO UPDATE SET tsv = EXCLUDED.tsv;
-                RETURN NEW;
-            END;
-            $$ LANGUAGE plpgsql;
-        ''')
-        
-        await conn.execute('''
-            DROP TRIGGER IF EXISTS search_trigger ON tips;
-            CREATE TRIGGER search_trigger AFTER INSERT OR UPDATE
-            ON tips FOR EACH ROW EXECUTE FUNCTION tips_search_update();
-        ''')
-        
-        # Populate initial data
-        await conn.execute('''
-            INSERT INTO tips_search (tip_id, tsv)
-            SELECT t.id,
-                   setweight(to_tsvector('english', coalesce(t.title,'')), 'A') ||
-                   setweight(to_tsvector('english', coalesce(c.category,'')), 'B') ||
-                   setweight(to_tsvector('english', coalesce(c.subcategory,'')), 'B') ||
-                   setweight(to_tsvector('english', coalesce(
-                       (SELECT string_agg(value->>'ingredient', ' ') FROM jsonb_array_elements(t.ingredients)), ''
-                   )), 'C')
-            FROM tips t
-            JOIN categories c ON t.category_id = c.id
-            ON CONFLICT (tip_id) DO NOTHING;
-        ''')
-
-        
-        # Index on category_id for faster joins
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_tips_category_id
             ON tips (category_id)
         ''')
 
-        # Add tsvector column for full‑text search
-        await conn.execute('''
-            ALTER TABLE tips ADD COLUMN IF NOT EXISTS tsv tsvector
-        ''')
-        
-        # Create or replace the trigger function
-        await conn.execute('''
-            CREATE OR REPLACE FUNCTION tips_tsv_trigger() RETURNS trigger AS $$
-            begin
-                new.tsv :=
-                    setweight(to_tsvector('english', coalesce(new.title,'')), 'A') ||
-                    setweight(to_tsvector('english', coalesce(new.category,'')), 'B') ||
-                    setweight(to_tsvector('english', coalesce(new.subcategory,'')), 'B') ||
-                    setweight(to_tsvector('english', coalesce(
-                        (SELECT string_agg(value->>'ingredient', ' ') FROM jsonb_array_elements(new.ingredients)), ''
-                    )), 'C');
-                return new;
-            end
-            $$ LANGUAGE plpgsql;
-        ''')
-        
-        # Create trigger (if not exists)
-        await conn.execute('''
-            DROP TRIGGER IF EXISTS tsvector_update ON tips;
-            CREATE TRIGGER tsvector_update BEFORE INSERT OR UPDATE
-            ON tips FOR EACH ROW EXECUTE FUNCTION tips_tsv_trigger();
-        ''')
-        
-        # Update existing rows to populate tsv
-        await conn.execute('''
-            UPDATE tips SET tsv = NULL  -- trigger will fill it
-        ''')
-
-        # Search table for full‑text search
+        # tips_search table for full‑text search
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS tips_search (
                 tip_id TEXT PRIMARY KEY REFERENCES tips(id) ON DELETE CASCADE,
                 tsv tsvector
             )
         ''')
-        
-        # Create or replace the function that updates the search table
+
+        # Function to update tips_search when tips change
         await conn.execute('''
             CREATE OR REPLACE FUNCTION tips_search_update() RETURNS trigger AS $$
             BEGIN
@@ -177,15 +92,15 @@ async def init_db():
             END;
             $$ LANGUAGE plpgsql;
         ''')
-        
-        # Create the trigger on the tips table
+
+        # Trigger on tips
         await conn.execute('''
             DROP TRIGGER IF EXISTS search_trigger ON tips;
             CREATE TRIGGER search_trigger AFTER INSERT OR UPDATE
             ON tips FOR EACH ROW EXECUTE FUNCTION tips_search_update();
         ''')
-        
-        # Populate the search table for existing tips
+
+        # Initial population of tips_search
         await conn.execute('''
             INSERT INTO tips_search (tip_id, tsv)
             SELECT t.id,
@@ -199,7 +114,7 @@ async def init_db():
             JOIN categories c ON t.category_id = c.id
             ON CONFLICT (tip_id) DO NOTHING;
         ''')
-        
+
         print("Database tables and indexes verified/created.")
     finally:
         await conn.close()
@@ -208,25 +123,20 @@ async def migrate_data(data: dict):
     """Insert initial tip data into database if tables are empty."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        # Check if categories already exist
         count = await conn.fetchval('SELECT COUNT(*) FROM categories')
         if count > 0:
             print("Data already migrated, skipping.")
             return
 
-        # Insert categories and tips
-        for category_name, subcats in data.items():   # category_name: 'drink' or 'bakery'
+        for category_name, subcats in data.items():
             for subcat_name, tips_list in subcats.items():
-                # Insert category
                 cat_id = await conn.fetchval('''
                     INSERT INTO categories (category, subcategory)
                     VALUES ($1, $2)
                     RETURNING id
                 ''', category_name, subcat_name)
 
-                # Insert each tip
                 for tip in tips_list:
-                    # Convert ingredients and steps to JSON
                     ingredients_json = json.dumps(tip.get("ingredients", []))
                     steps_json = json.dumps(tip.get("steps", []))
 
