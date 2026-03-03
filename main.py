@@ -1931,6 +1931,7 @@ TEXTS = {
         # Favorites
         "favorites_list": "⭐ មាតិកាដែលបានរក្សាទុក:",
         "no_favorites": "មិនទាន់មានមាតិកាដែលបានរក្សាទុកទេ",
+        "no_popular": "មិនទាន់មានគន្លឹះពេញនិយមទេ។",   # <-- add this
         "saved": "✅ បានរក្សាទុក",
         "already_saved": "⭐ មានរួចហើយ",
         
@@ -1996,6 +1997,7 @@ TEXTS = {
         # Favorites
         "favorites_list": "⭐ Saved content:",
         "no_favorites": "No saved content yet",
+        "no_popular": "No popular tips yet.",          # <-- add this
         "saved": "✅ Saved",
         "already_saved": "⭐ Already saved",
         
@@ -2212,6 +2214,15 @@ class ContentStore:
                 INSERT INTO tip_stats (tip_id) VALUES ($1)
                 ON CONFLICT (tip_id) DO NOTHING
             ''', tip_id)
+
+    async def log_view(self, user_id: int, tip_id: str) -> None:
+        """Record that a user viewed a tip."""
+        async with DB_POOL.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO user_views (user_id, tip_id)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id, tip_id) DO UPDATE SET viewed_at = NOW()
+            ''', user_id, tip_id)
 
 CONTENT = ContentStore()
 
@@ -2500,6 +2511,7 @@ favorites_router = Router()
 nav_router = Router()  # for generic callbacks
 # Add a settings router
 settings_router = Router()
+popular_router = Router()
 
 # --- Start & Home
 @start_router.message(F.text == "⚙️ កំណត់")
@@ -2759,6 +2771,7 @@ async def open_tip(cb: CallbackQuery):
     # SPECIAL HANDLING FOR INGREDIENTS LIST / PRODUCTS - EACH ITEM AS SEPARATE PAGE
     if tip.get("subcategory") in ["ingredients_list", "products"]:
         await CONTENT.increment_view(tip_id_str)   # increment view count
+        await CONTENT.log_view(cb.from_user.id, tip_id_str)
 
         category = tip.get("category", "")
         subcategory = tip.get("subcategory", "")
@@ -3153,6 +3166,28 @@ Current: {'Khmer' if lang == 'km' else 'English'}
     await cb.message.edit_text(lang_text, reply_markup=kb)
     await cb.answer()
 
+@popular_router.message(F.text == "/popular")
+async def popular_tips(message: Message):
+    user_id = message.from_user.id
+    lang = await get_user_lang(user_id)
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT tip_id, COUNT(*) as view_count
+            FROM user_views
+            GROUP BY tip_id
+            ORDER BY view_count DESC
+            LIMIT 10
+        ''')
+    if not rows:
+        await message.answer(TEXTS[lang].get("no_popular", "No popular tips yet."))
+        return
+    lines = ["🔥 **Most Viewed Tips** 🔥\n"]
+    for i, row in enumerate(rows, 1):
+        tip = await CONTENT.get_tip(row['tip_id'])
+        if tip:
+            lines.append(f"{i}. {tip['title']} – {row['view_count']} views")
+    await message.answer("\n".join(lines))
+
 # --- Language Change Handler
 @settings_router.callback_query(F.data.startswith("lang:"))
 async def change_language(cb: CallbackQuery):
@@ -3428,6 +3463,7 @@ async def main():
     # Register routers
     dp.include_router(start_router)
     dp.include_router(nav_router)
+    dp.include_router(popular_router)
     dp.include_router(drink_router)
     dp.include_router(bakery_router)
     dp.include_router(search_router)
@@ -3445,6 +3481,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
