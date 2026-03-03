@@ -56,6 +56,9 @@ BOT_TOKEN = "7214241237:AAHojJtvd31R-CWgWR0BYUG-oDUNHO0ROzE"
 DATABASE_URL = "postgresql://postgres:lXwGOXEmpDGGVOBFvrVDEbHtJvzwfdKA@nozomi.proxy.rlwy.net:22016/railway"
 
 DEFAULT_LANG = "en"
+# Admin user IDs (replace with your Telegram ID)
+ADMIN_IDS = [123456789]  # <-- put your numeric user ID here
+
 
 # =========================
 # SAMPLE DATA (in-memory)
@@ -2511,7 +2514,18 @@ favorites_router = Router()
 nav_router = Router()  # for generic callbacks
 # Add a settings router
 settings_router = Router()
+admin_router = Router()
 popular_router = Router()
+
+class AdminStates(StatesGroup):
+    choosing_category = State()
+    choosing_subcategory = State()
+    entering_title = State()
+    entering_ingredients = State()
+    entering_steps = State()
+    entering_picture = State()
+    entering_video = State()
+    confirm_save = State()
 
 # --- Start & Home
 @start_router.message(F.text == "⚙️ កំណត់")
@@ -3481,6 +3495,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
