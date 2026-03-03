@@ -39,6 +39,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 
 from db import init_db
 from db import migrate_data   # at the top
@@ -3727,6 +3728,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
