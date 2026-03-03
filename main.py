@@ -2123,21 +2123,19 @@ class ContentStore:
         q = (query or "").strip().lower()
         if not q:
             return []
-        await self.ensure_loaded()
-        results = []
-        for tip in self._tips_cache.values():
-            hay = [
-                tip.get("title", ""),
-                tip.get("category", ""),
-                tip.get("subcategory", ""),
-                " ".join([i.get("ingredient", "") for i in tip.get("ingredients", [])])
-            ]
-            hay_text = " ".join(hay).lower()
-            if q in hay_text:
-                results.append(tip)
-            if len(results) >= limit:
-                break
-        return results
+        # Use PostgreSQL full‑text search
+        async with DB_POOL.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT t.id
+                FROM tips t
+                JOIN categories c ON t.category_id = c.id
+                WHERE tsv @@ plainto_tsquery('english', $1)
+                ORDER BY ts_rank(tsv, plainto_tsquery('english', $1)) DESC
+                LIMIT $2
+            ''', q, limit)
+            tip_ids = [r['id'] for r in rows]
+            await self.ensure_loaded()
+            return [self._tips_cache[tid] for tid in tip_ids if tid in self._tips_cache]
 
     # The favorites methods remain unchanged (they already use DB)
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
@@ -3446,6 +3444,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
