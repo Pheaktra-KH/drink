@@ -57,7 +57,7 @@ DATABASE_URL = "postgresql://postgres:lXwGOXEmpDGGVOBFvrVDEbHtJvzwfdKA@nozomi.pr
 
 DEFAULT_LANG = "en"
 # Admin user IDs (replace with your Telegram ID)
-ADMIN_IDS = [123456789]  # <-- put your numeric user ID here
+ADMIN_IDS = [729290854]  # <-- put your numeric user ID here
 
 
 # =========================
@@ -2056,6 +2056,9 @@ async def get_text(user_id: int, key: str) -> str:
     lang = await get_user_lang(user_id)
     return TEXTS[lang].get(key, key)
 
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
 
 # =========================
 # CONTENT STORE (with DB for favorites)
@@ -2105,11 +2108,10 @@ class ContentStore:
                 key = (r["category"], r["subcategory"])
                 self._items_cache.setdefault(key, []).append(tip)
 
-    async def ensure_loaded(self):
-        """Ensure caches are populated."""
-        if self._categories_cache is None:
+    async def ensure_loaded(self, force=False):
+        if force or self._categories_cache is None:
             await self._load_categories()
-        if self._tips_cache is None:
+        if force or self._tips_cache is None:
             await self._load_tips()
 
     # ---------- public methods ----------
@@ -2514,8 +2516,8 @@ favorites_router = Router()
 nav_router = Router()  # for generic callbacks
 # Add a settings router
 settings_router = Router()
-admin_router = Router()
 popular_router = Router()
+admin_router = Router()
 
 class AdminStates(StatesGroup):
     choosing_category = State()
@@ -3437,6 +3439,234 @@ async def settings_units(cb: CallbackQuery):
     await cb.message.edit_text(units_text, reply_markup=kb)
     await cb.answer()
 
+@admin_router.message(Command("admin"))
+async def admin_menu(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Access denied.")
+        return
+    text = (
+        "🛠 **Admin Panel**\n\n"
+        "`/admin_list` – List all tips (paginated)\n"
+        "`/admin_add` – Add a new tip\n"
+        "`/admin_edit <tip_id>` – Edit a tip\n"
+        "`/admin_delete <tip_id>` – Delete a tip\n"
+        "`/admin_reload` – Reload cache from database"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+@admin_router.message(Command("admin_list"))
+async def admin_list(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Access denied.")
+        return
+    # Parse page number from command, e.g., /admin_list 2
+    parts = message.text.split()
+    page = 1
+    if len(parts) > 1:
+        try:
+            page = int(parts[1])
+        except:
+            page = 1
+    limit = 10
+    offset = (page - 1) * limit
+    async with DB_POOL.acquire() as conn:
+        total = await conn.fetchval('SELECT COUNT(*) FROM tips')
+        rows = await conn.fetch('''
+            SELECT t.id, t.title, c.category, c.subcategory
+            FROM tips t
+            JOIN categories c ON t.category_id = c.id
+            ORDER BY t.id
+            LIMIT $1 OFFSET $2
+        ''', limit, offset)
+    if not rows:
+        await message.answer("No tips found.")
+        return
+    lines = [f"📄 Page {page} / {(total + limit - 1)//limit}\n"]
+    for r in rows:
+        lines.append(f"`{r['id']}` – {r['title']} ({r['category']}/{r['subcategory']})")
+    lines.append(f"\nTo see another page: `/admin_list {page+1}`")
+    await message.answer("\n".join(lines), parse_mode="Markdown")
+
+@admin_router.message(Command("admin_add"))
+async def admin_add_start(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Access denied.")
+        return
+    await state.set_state(AdminStates.choosing_category)
+    # Ask for category
+    await message.answer("Choose category:\n`drink` or `bakery`", parse_mode="Markdown")
+
+@admin_router.message(AdminStates.choosing_category)
+async def admin_add_category(message: Message, state: FSMContext):
+    cat = message.text.strip().lower()
+    if cat not in ["drink", "bakery"]:
+        await message.answer("Please enter either `drink` or `bakery`.", parse_mode="Markdown")
+        return
+    await state.update_data(category=cat)
+    await state.set_state(AdminStates.choosing_subcategory)
+    # Get existing subcategories for this category
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch('SELECT subcategory FROM categories WHERE category = $1', cat)
+        subs = [r['subcategory'] for r in rows]
+    sub_list = "\n".join(f"`{s}`" for s in subs)
+    await message.answer(f"Choose a subcategory from the list, or type a new one:\n{sub_list}")
+
+@admin_router.message(AdminStates.choosing_subcategory)
+async def admin_add_subcategory(message: Message, state: FSMContext):
+    sub = message.text.strip().lower()
+    data = await state.get_data()
+    category = data['category']
+    # Check if subcategory exists, if not create it
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow('SELECT id FROM categories WHERE category = $1 AND subcategory = $2', category, sub)
+        if not row:
+            # Create new subcategory
+            cat_id = await conn.fetchval('''
+                INSERT INTO categories (category, subcategory, created_at, updated_at)
+                VALUES ($1, $2, NOW(), NOW())
+                RETURNING id
+            ''', category, sub)
+        else:
+            cat_id = row['id']
+    await state.update_data(category_id=cat_id, subcategory=sub)
+    await state.set_state(AdminStates.entering_title)
+    await message.answer("Enter the tip title:")
+
+@admin_router.message(AdminStates.entering_title)
+async def admin_add_title(message: Message, state: FSMContext):
+    title = message.text.strip()
+    await state.update_data(title=title)
+    await state.set_state(AdminStates.entering_ingredients)
+    await message.answer(
+        "Enter ingredients as JSON array.\n"
+        "Example:\n"
+        '[{"no":1,"ingredient":"Espresso","amount":30,"uom":"ml","remark":""}]'
+    )
+
+@admin_router.message(AdminStates.entering_ingredients)
+async def admin_add_ingredients(message: Message, state: FSMContext):
+    try:
+        ingredients = json.loads(message.text)
+        if not isinstance(ingredients, list):
+            raise ValueError
+    except:
+        await message.answer("Invalid JSON. Please enter a valid ingredients array.")
+        return
+    await state.update_data(ingredients=ingredients)
+    await state.set_state(AdminStates.entering_steps)
+    await message.answer(
+        "Enter steps as JSON array.\n"
+        "Example:\n"
+        '["Step 1", "Step 2", "Step 3"]'
+    )
+
+@admin_router.message(AdminStates.entering_steps)
+async def admin_add_steps(message: Message, state: FSMContext):
+    try:
+        steps = json.loads(message.text)
+        if not isinstance(steps, list):
+            raise ValueError
+    except:
+        await message.answer("Invalid JSON. Please enter a valid steps array.")
+        return
+    await state.update_data(steps=steps)
+    await state.set_state(AdminStates.entering_picture)
+    await message.answer("Enter picture_file_id (or /skip if none):")
+
+@admin_router.message(AdminStates.entering_picture)
+async def admin_add_picture(message: Message, state: FSMContext):
+    pic = message.text.strip()
+    if pic == "/skip":
+        pic = ""
+    await state.update_data(picture_file_id=pic)
+    await state.set_state(AdminStates.entering_video)
+    await message.answer("Enter video URL (or /skip if none):")
+
+@admin_router.message(AdminStates.entering_video)
+async def admin_add_video(message: Message, state: FSMContext):
+    vid = message.text.strip()
+    if vid == "/skip":
+        vid = ""
+    await state.update_data(video_url=vid)
+    await state.set_state(AdminStates.confirm_save)
+
+    # Show summary and ask for confirmation
+    data = await state.get_data()
+    summary = (
+        f"**Summary**\n\n"
+        f"Category: {data['category']}\n"
+        f"Subcategory: {data['subcategory']}\n"
+        f"Title: {data['title']}\n"
+        f"Ingredients: {json.dumps(data['ingredients'], indent=2)}\n"
+        f"Steps: {json.dumps(data['steps'], indent=2)}\n"
+        f"Picture: {data.get('picture_file_id', '')}\n"
+        f"Video: {data.get('video_url', '')}\n\n"
+        f"Type `yes` to save, `no` to cancel."
+    )
+    await message.answer(summary, parse_mode="Markdown")
+
+@admin_router.message(AdminStates.confirm_save)
+async def admin_add_confirm(message: Message, state: FSMContext):
+    if message.text.strip().lower() != "yes":
+        await message.answer("Cancelled.")
+        await state.clear()
+        return
+    data = await state.get_data()
+    # Generate tip_id (you might want a better slug generator)
+    tip_id = f"{data['category']}/{data['subcategory']}/{data['title'].replace(' ', '_').lower()}"
+    async with DB_POOL.acquire() as conn:
+        # Insert tip
+        await conn.execute('''
+            INSERT INTO tips (
+                id, category_id, title, ingredients, steps,
+                picture_file_id, video_url, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        ''',
+            tip_id,
+            data['category_id'],
+            data['title'],
+            json.dumps(data['ingredients']),
+            json.dumps(data['steps']),
+            data.get('picture_file_id', ''),
+            data.get('video_url', '')
+        )
+    await message.answer(f"✅ Tip saved with ID: `{tip_id}`", parse_mode="Markdown")
+    await state.clear()
+    # Optionally reload cache
+    await CONTENT.ensure_loaded()  # force reload? We'll modify ensure_loaded to accept force param
+
+@admin_router.message(Command("admin_delete"))
+async def admin_delete(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Access denied.")
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Usage: `/admin_delete <tip_id>`", parse_mode="Markdown")
+        return
+    tip_id = parts[1]
+    async with DB_POOL.acquire() as conn:
+        # Check if exists
+        exists = await conn.fetchval('SELECT 1 FROM tips WHERE id = $1', tip_id)
+        if not exists:
+            await message.answer(f"Tip `{tip_id}` not found.", parse_mode="Markdown")
+            return
+        # Delete (cascade will handle tips_search and user_favorites)
+        await conn.execute('DELETE FROM tips WHERE id = $1', tip_id)
+    await message.answer(f"✅ Tip `{tip_id}` deleted.", parse_mode="Markdown")
+    await CONTENT.ensure_loaded(force=True)
+
+@admin_router.message(Command("admin_reload"))
+async def admin_reload(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Access denied.")
+        return
+    await CONTENT.ensure_loaded(force=True)
+    await message.answer("✅ Cache reloaded from database.")
+
+
+
+
 # =========================
 # APP BOOTSTRAP
 # =========================
@@ -3483,7 +3713,9 @@ async def main():
     dp.include_router(search_router)
     dp.include_router(favorites_router)
     dp.include_router(settings_router)
+    dp.include_router(admin_router)
 
+    
     try:
         await dp.start_polling(bot)
     finally:
@@ -3495,6 +3727,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
