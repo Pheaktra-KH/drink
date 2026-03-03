@@ -40,7 +40,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 
 from db import init_db
-
+from db import migrate_data   # at the top
 # =========================
 # CONFIG
 # =========================
@@ -2055,16 +2055,91 @@ async def get_text(user_id: int, key: str) -> str:
 # CONTENT STORE (with DB for favorites)
 # =========================
 class ContentStore:
-    def __init__(self, data: Dict[str, Dict[str, List[Dict[str, Any]]]]):
-        self.data = data
-        self.index: Dict[str, Dict[str, Any]] = {}
-        for cat, submap in data.items():
-            for sub, items in submap.items():
-                for tip in items:
-                    self.index[tip["id"]] = tip
-        # No in‑memory dictionaries – everything is in the database now
+    def __init__(self):
+        # We'll cache categories and tips after first load
+        self._categories_cache = None   # list of (id, category, subcategory)
+        self._tips_cache = None          # dict tip_id -> tip dict
+        self._subcats_cache = None       # dict category -> list of subcats
+        self._items_cache = None          # dict (category,subcategory) -> list of tips
 
-    # ---------- favorites ----------
+    async def _load_categories(self):
+        """Load all categories into cache."""
+        async with DB_POOL.acquire() as conn:
+            rows = await conn.fetch('SELECT id, category, subcategory FROM categories ORDER BY category, subcategory')
+            self._categories_cache = [dict(r) for r in rows]
+            # Build subcategories index
+            self._subcats_cache = {}
+            for r in rows:
+                self._subcats_cache.setdefault(r['category'], []).append(r['subcategory'])
+
+    async def _load_tips(self):
+        """Load all tips into cache."""
+        async with DB_POOL.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT t.id, t.title, t.ingredients, t.steps,
+                       t.picture_file_id, t.video_url,
+                       c.category, c.subcategory
+                FROM tips t
+                JOIN categories c ON t.category_id = c.id
+            ''')
+            self._tips_cache = {}
+            self._items_cache = {}
+            for r in rows:
+                tip = {
+                    "id": r["id"],
+                    "title": r["title"],
+                    "category": r["category"],
+                    "subcategory": r["subcategory"],
+                    "ingredients": json.loads(r["ingredients"]),
+                    "steps": json.loads(r["steps"]),
+                    "picture_file_id": r["picture_file_id"],
+                    "video_url": r["video_url"]
+                }
+                self._tips_cache[r["id"]] = tip
+                key = (r["category"], r["subcategory"])
+                self._items_cache.setdefault(key, []).append(tip)
+
+    async def ensure_loaded(self):
+        """Ensure caches are populated."""
+        if self._categories_cache is None:
+            await self._load_categories()
+        if self._tips_cache is None:
+            await self._load_tips()
+
+    # ---------- public methods ----------
+    async def list_subcats(self, category: str) -> List[str]:
+        await self.ensure_loaded()
+        return self._subcats_cache.get(category, [])
+
+    async def list_items(self, category: str, subcategory: str) -> List[Dict[str, Any]]:
+        await self.ensure_loaded()
+        return self._items_cache.get((category, subcategory), [])
+
+    async def get_tip(self, tip_id: str) -> Dict[str, Any]:
+        await self.ensure_loaded()
+        return self._tips_cache.get(tip_id)
+
+    async def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        await self.ensure_loaded()
+        results = []
+        for tip in self._tips_cache.values():
+            hay = [
+                tip.get("title", ""),
+                tip.get("category", ""),
+                tip.get("subcategory", ""),
+                " ".join([i.get("ingredient", "") for i in tip.get("ingredients", [])])
+            ]
+            hay_text = " ".join(hay).lower()
+            if q in hay_text:
+                results.append(tip)
+            if len(results) >= limit:
+                break
+        return results
+
+    # The favorites methods remain unchanged (they already use DB)
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
         async with DB_POOL.acquire() as conn:
             try:
@@ -2082,50 +2157,40 @@ class ContentStore:
         async with DB_POOL.acquire() as conn:
             rows = await conn.fetch('SELECT tip_id FROM user_favorites WHERE user_id = $1', user_id)
             tip_ids = [row['tip_id'] for row in rows]
-            return [self.index[tid] for tid in tip_ids if tid in self.index]
+            await self.ensure_loaded()
+            return [self._tips_cache[tid] for tid in tip_ids if tid in self._tips_cache]
 
     async def clear_favs(self, user_id: int) -> None:
         async with DB_POOL.acquire() as conn:
             await conn.execute('DELETE FROM user_favorites WHERE user_id = $1', user_id)
 
-    # ---------- tip stats ----------
-    async def _ensure_tip_stats(self, tip_id: str):
-        """Ensure a row exists for this tip_id (insert if not)."""
-        async with DB_POOL.acquire() as conn:
-            await conn.execute('''
-                INSERT INTO tip_stats (tip_id) VALUES ($1)
-                ON CONFLICT (tip_id) DO NOTHING
-            ''', tip_id)
-
+    # tip stats methods remain async – they already use DB
     async def increment_view(self, tip_id: str) -> int:
         await self._ensure_tip_stats(tip_id)
         async with DB_POOL.acquire() as conn:
-            result = await conn.fetchval('''
+            return await conn.fetchval('''
                 UPDATE tip_stats SET views = views + 1
                 WHERE tip_id = $1
                 RETURNING views
             ''', tip_id)
-            return result
 
     async def increment_fav(self, tip_id: str) -> int:
         await self._ensure_tip_stats(tip_id)
         async with DB_POOL.acquire() as conn:
-            result = await conn.fetchval('''
+            return await conn.fetchval('''
                 UPDATE tip_stats SET favorites = favorites + 1
                 WHERE tip_id = $1
                 RETURNING favorites
             ''', tip_id)
-            return result
 
     async def increment_share(self, tip_id: str) -> int:
         await self._ensure_tip_stats(tip_id)
         async with DB_POOL.acquire() as conn:
-            result = await conn.fetchval('''
+            return await conn.fetchval('''
                 UPDATE tip_stats SET shares = shares + 1
                 WHERE tip_id = $1
                 RETURNING shares
             ''', tip_id)
-            return result
 
     async def get_view_count(self, tip_id: str) -> int:
         await self._ensure_tip_stats(tip_id)
@@ -2142,34 +2207,12 @@ class ContentStore:
         async with DB_POOL.acquire() as conn:
             return await conn.fetchval('SELECT shares FROM tip_stats WHERE tip_id = $1', tip_id) or 0
 
-    # ---------- synchronous data access (unchanged) ----------
-    def list_subcats(self, category: str) -> List[str]:
-        return sorted(list(self.data.get(category, {}).keys()))
-
-    def list_items(self, category: str, subcategory: str) -> List[Dict[str, Any]]:
-        return list(self.data.get(category, {}).get(subcategory, []))
-
-    def get_tip(self, tip_id: str) -> Dict[str, Any]:
-        return self.index.get(tip_id)
-
-    def search(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
-        q = (query or "").strip().lower()
-        if not q:
-            return []
-        results: List[Dict[str, Any]] = []
-        for tip in self.index.values():
-            hay = [
-                tip.get("title", ""),
-                tip.get("category", ""),
-                tip.get("subcategory", ""),
-                " ".join([i.get("ingredient", "") for i in tip.get("ingredients", [])])
-            ]
-            hay_text = " ".join(hay).lower()
-            if q in hay_text:
-                results.append(tip)
-            if len(results) >= limit:
-                break
-        return results
+    async def _ensure_tip_stats(self, tip_id: str):
+        async with DB_POOL.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO tip_stats (tip_id) VALUES ($1)
+                ON CONFLICT (tip_id) DO NOTHING
+            ''', tip_id)
 
 CONTENT = ContentStore(DATA)
 
@@ -2512,7 +2555,7 @@ async def nav_back(cb: CallbackQuery):
 @drink_router.message(F.text == "🍹 Drink Tips")
 async def drink_menu(message: Message):
     user_id = message.from_user.id
-    subs = CONTENT.list_subcats("drink")
+    subs = await CONTENT.list_subcats("drink")
     if "source" in subs:
         subs.remove("source")
     new_order = []
@@ -2530,7 +2573,7 @@ async def drink_menu(message: Message):
 @drink_router.callback_query(F.data.startswith("tips:cat:drink"))
 async def back_to_drink(cb: CallbackQuery):
     user_id = cb.from_user.id
-    subs = CONTENT.list_subcats("drink")
+    subs = await CONTENT.list_subcats("drink")
     if "source" in subs:
         subs.remove("source")
     lang = await get_user_lang(user_id)                         # <-- await
@@ -2549,7 +2592,7 @@ async def open_drink_sub(cb: CallbackQuery):
         page = int(page_str)
     except ValueError:
         page = 1
-    items = CONTENT.list_items(category, subcategory)
+    items = await CONTENT.list_items(category, subcategory)
     kb = await item_list_kb(category, subcategory, items, page)   # <-- await
     await cb.message.edit_text(f"🍹 {subcategory.capitalize()}", reply_markup=kb)
     await cb.answer()
@@ -2558,7 +2601,7 @@ async def open_drink_sub(cb: CallbackQuery):
 @bakery_router.message(F.text == "🧁 Bakery Tips")
 async def bakery_menu(message: Message):
     user_id = message.from_user.id
-    subs = CONTENT.list_subcats("bakery")
+    subs = await CONTENT.list_subcats("bakery")
     if "topping" in subs:
         subs.remove("topping")
     new_order = []
@@ -2576,7 +2619,7 @@ async def bakery_menu(message: Message):
 @bakery_router.callback_query(F.data.startswith("tips:cat:bakery"))
 async def back_to_bakery(cb: CallbackQuery):
     user_id = cb.from_user.id
-    subs = CONTENT.list_subcats("bakery")
+    subs = await CONTENT.list_subcats("bakery")
     if "topping" in subs:
         subs.remove("topping")
     lang = await get_user_lang(user_id)                         # <-- await
@@ -2597,7 +2640,7 @@ async def open_sub(cb: CallbackQuery):
         page = int(page_str)
     except ValueError:
         page = 1
-    items = CONTENT.list_items(category, subcategory)
+    items = await CONTENT.list_items(category, subcategory)
     kb = await item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)  # <-- await
     await cb.message.edit_text(
         f"{'🍹' if category == 'drink' else '🧁'} {subcategory.capitalize()}",
@@ -2616,7 +2659,7 @@ async def open_bakery_sub(cb: CallbackQuery):
         page = int(page_str)
     except ValueError:
         page = 1
-    items = CONTENT.list_items(category, subcategory)
+    items = await CONTENT.list_items(category, subcategory)
     kb = await item_list_kb(category, subcategory, items, page, user_id=cb.from_user.id)  # <-- await
     await cb.message.edit_text(f"🧁 {subcategory.capitalize()}", reply_markup=kb)
     await cb.answer()
@@ -3015,7 +3058,7 @@ async def handle_ingredient_pagination(cb: CallbackQuery):
         return
     
     # Get the original tip
-    tip = CONTENT.get_tip(base_tip_id)
+    tip = await CONTENT.get_tip(base_tip_id)
     if not tip:
         await cb.answer("Content not found", show_alert=True)
         return
@@ -3045,7 +3088,7 @@ async def fav_tip(cb: CallbackQuery):
 @bakery_router.callback_query(F.data.startswith("tips:share:"))
 async def share_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:share:", "", 1)
-    tip = CONTENT.get_tip(tip_id_str)
+    tip = await CONTENT.get_tip(tip_id_str)
     if not tip:
         await cb.answer("Content not found", show_alert=True)
         return
@@ -3076,7 +3119,7 @@ async def search_entry(message: Message, state: FSMContext):
 @search_router.message(SearchStates.waiting_query)
 async def do_search(message: Message, state: FSMContext):
     q = message.text
-    results = CONTENT.search(q)
+    results = await CONTENT.search(q)
     await state.clear()
     lang = await get_user_lang(message.from_user.id)       # <-- await
     if not results:
@@ -3369,6 +3412,7 @@ async def init_db_pool():
 async def main():
     await init_db()
     await init_db_pool()
+    await migrate_data(DATA)   # <-- add this line
     print("Database initialized successfully")
 
     # === Optional: Pre‑initialize stats for all tips ===
@@ -3406,6 +3450,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
