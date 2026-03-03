@@ -20,6 +20,11 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_user_favorites_user_id
             ON user_favorites (user_id)
         ''')
+        # Add index on tip_id for counting favorites per tip
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_favorites_tip_id
+            ON user_favorites (tip_id)
+        ''')
 
         # tip_stats table
         await conn.execute('''
@@ -37,6 +42,11 @@ async def init_db():
                 user_id BIGINT PRIMARY KEY,
                 language_code TEXT NOT NULL
             )
+        ''')
+        # Optional index on language_code
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_languages_language_code
+            ON user_languages (language_code)
         ''')
 
         # categories table
@@ -100,7 +110,23 @@ async def init_db():
             ON tips FOR EACH ROW EXECUTE FUNCTION tips_search_update();
         ''')
 
-        # Initial population of tips_search
+        # Add timestamp columns to existing tables (if not exist)
+        await conn.execute('''
+            ALTER TABLE tips ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+            ALTER TABLE tips ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+        ''')
+        await conn.execute('''
+            ALTER TABLE categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+            ALTER TABLE categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+        ''')
+        await conn.execute('''
+            ALTER TABLE user_favorites ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        ''')
+        await conn.execute('''
+            ALTER TABLE user_languages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        ''')
+
+        # Initial population of tips_search (after ensuring all tables exist)
         await conn.execute('''
             INSERT INTO tips_search (tip_id, tsv)
             SELECT t.id,
@@ -115,7 +141,7 @@ async def init_db():
             ON CONFLICT (tip_id) DO NOTHING;
         ''')
 
-        print("Database tables and indexes verified/created.")
+        print("Database tables, indexes, and timestamp columns verified/created.")
     finally:
         await conn.close()
 
@@ -131,8 +157,8 @@ async def migrate_data(data: dict):
         for category_name, subcats in data.items():
             for subcat_name, tips_list in subcats.items():
                 cat_id = await conn.fetchval('''
-                    INSERT INTO categories (category, subcategory)
-                    VALUES ($1, $2)
+                    INSERT INTO categories (category, subcategory, created_at, updated_at)
+                    VALUES ($1, $2, NOW(), NOW())
                     RETURNING id
                 ''', category_name, subcat_name)
 
@@ -144,8 +170,9 @@ async def migrate_data(data: dict):
                         INSERT INTO tips (
                             id, category_id, title,
                             ingredients, steps,
-                            picture_file_id, video_url
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            picture_file_id, video_url,
+                            created_at, updated_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                     ''',
                         tip["id"],
                         cat_id,
@@ -155,6 +182,6 @@ async def migrate_data(data: dict):
                         tip.get("picture_file_id", ""),
                         tip.get("video_url", "")
                     )
-        print("Initial data migrated to database.")
+        print("Initial data migrated to database (with timestamps).")
     finally:
         await conn.close()
