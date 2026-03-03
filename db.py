@@ -70,3 +70,48 @@ async def init_db():
         print("Database tables and indexes verified/created.")
     finally:
         await conn.close()
+
+async def migrate_data(data: dict):
+    """Insert initial tip data into database if tables are empty."""
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        # Check if categories already exist
+        count = await conn.fetchval('SELECT COUNT(*) FROM categories')
+        if count > 0:
+            print("Data already migrated, skipping.")
+            return
+
+        # Insert categories and tips
+        for category_name, subcats in data.items():   # category_name: 'drink' or 'bakery'
+            for subcat_name, tips_list in subcats.items():
+                # Insert category
+                cat_id = await conn.fetchval('''
+                    INSERT INTO categories (category, subcategory)
+                    VALUES ($1, $2)
+                    RETURNING id
+                ''', category_name, subcat_name)
+
+                # Insert each tip
+                for tip in tips_list:
+                    # Convert ingredients and steps to JSON
+                    ingredients_json = json.dumps(tip.get("ingredients", []))
+                    steps_json = json.dumps(tip.get("steps", []))
+
+                    await conn.execute('''
+                        INSERT INTO tips (
+                            id, category_id, title,
+                            ingredients, steps,
+                            picture_file_id, video_url
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ''',
+                        tip["id"],
+                        cat_id,
+                        tip["title"],
+                        ingredients_json,
+                        steps_json,
+                        tip.get("picture_file_id", ""),
+                        tip.get("video_url", "")
+                    )
+        print("Initial data migrated to database.")
+    finally:
+        await conn.close()
