@@ -2214,7 +2214,7 @@ class ContentStore:
                 ON CONFLICT (tip_id) DO NOTHING
             ''', tip_id)
 
-CONTENT = ContentStore(DATA)
+CONTENT = ContentStore()
 
 # =========================
 # HELPERS: RENDER & KEYBOARDS
@@ -2751,37 +2751,33 @@ def ingredients_album_kb(tip_id_str: str, category: str, subcategory: str, curre
 @bakery_router.callback_query(F.data.startswith("tips:item:"))
 async def open_tip(cb: CallbackQuery):
     tip_id_str = cb.data.replace("tips:item:", "", 1)
-    await CONTENT.increment_view(tip_id_str)          # <-- await
-    
+    tip = await CONTENT.get_tip(tip_id_str)
+
     if not tip:
         await cb.answer("Content not found", show_alert=True)
         return
-    
-    # SPECIAL HANDLING FOR INGREDIENTS LIST - EACH ITEM AS SEPARATE PAGE
+
+    # SPECIAL HANDLING FOR INGREDIENTS LIST / PRODUCTS - EACH ITEM AS SEPARATE PAGE
     if tip.get("subcategory") in ["ingredients_list", "products"]:
-        # Increment view count
-        CONTENT.increment_view(tip_id_str)
-        
-        # Get category info for back navigation
+        await CONTENT.increment_view(tip_id_str)   # increment view count
+
         category = tip.get("category", "")
         subcategory = tip.get("subcategory", "")
-        
-        # Get all ingredients
         ingredients = tip.get("ingredients", [])
-        
+
         if not ingredients:
             await cb.answer("No ingredients found", show_alert=True)
             return
-            
-        # Create separate page for first ingredient
+
+        # Show first ingredient page
         current_index = 0
         await show_ingredient_page(cb, tip, ingredients, current_index, category, subcategory)
         await cb.answer()
         return
-    
-    # ORIGINAL HANDLER FOR REGULAR TIPS (with small fix)
-    await cb.message.delete()  # Only delete for regular tips
-    
+
+    # ORIGINAL HANDLER FOR REGULAR TIPS
+    await cb.message.delete()
+
     view_count = await CONTENT.increment_view(tip_id_str)
     fav_count = await CONTENT.get_fav_count(tip_id_str)
     share_count = await CONTENT.get_share_count(tip_id_str)
@@ -2793,12 +2789,11 @@ async def open_tip(cb: CallbackQuery):
         seed = tip["id"].replace("/", "_")
         await cb.message.answer_photo(photo=f"https://picsum.photos/seed/{seed}/640/480", caption=tip["title"])
 
-    text = await render_tip_card(tip, view_count, fav_count, share_count, cb.from_user.id)  # <-- await
+    text = await render_tip_card(tip, view_count, fav_count, share_count, cb.from_user.id)
     back_payload = f"tips:sub:{tip['category']}:{tip['subcategory']}:1"
     video_url = tip.get("video_url", None)
-    kb = await tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id)   # <-- await
-    await cb.message.answer(text, reply_markup=kb)                                 # <-- use kb
-    await cb.message.answer(text, reply_markup=tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id))
+    kb = await tip_card_kb(tip["id"], back_payload, video_url, cb.from_user.id)
+    await cb.message.answer(text, reply_markup=kb)
     await cb.answer()
 
 # =========================
@@ -3417,11 +3412,12 @@ async def main():
 
     # === Optional: Pre‑initialize stats for all tips ===
     async with DB_POOL.acquire() as conn:
-        for tip_id in CONTENT.index.keys():
+        tip_ids = await conn.fetch('SELECT id FROM tips')
+        for record in tip_ids:
             await conn.execute('''
                 INSERT INTO tip_stats (tip_id) VALUES ($1)
                 ON CONFLICT (tip_id) DO NOTHING
-            ''', tip_id)
+            ''', record['id'])
     print("Tip stats initialized for all tips")
     # ==================================================
 
@@ -3450,6 +3446,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
