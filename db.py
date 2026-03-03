@@ -103,6 +103,24 @@ async def init_db():
             $$ LANGUAGE plpgsql;
         ''')
 
+        # user_views table for tracking user tip views
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_views (
+                user_id BIGINT,
+                tip_id TEXT,
+                viewed_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (user_id, tip_id)
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_views_user_id
+            ON user_views (user_id)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_views_tip_id
+            ON user_views (tip_id)
+        ''')
+        
         # Trigger on tips
         await conn.execute('''
             DROP TRIGGER IF EXISTS search_trigger ON tips;
