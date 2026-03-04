@@ -2442,6 +2442,8 @@ async def item_list_kb(category: str, subcategory: str, items: List[Dict[str, An
     start = (page - 1) * page_size
     page_items = items[start:start + page_size]
     rows: List[List[InlineKeyboardButton]] = []
+    
+    # Determine number of columns (same as before)
     drink_3col_subs = ["cafe", "ingredients_list", "tea", "soda", "frappe", "topping", "source", "products"]
     bakery_3col_subs = ["cake", "pastry", "bread", "cookie", "topping", "source", "ingredients_list", "products"]
     if category == "drink" and subcategory in drink_3col_subs:
@@ -2451,56 +2453,69 @@ async def item_list_kb(category: str, subcategory: str, items: List[Dict[str, An
     else:
         avg_length = sum(len(tip.get("title", "")) for tip in page_items) / max(len(page_items), 1)
         num_columns = 2 if avg_length > 15 else 3
+
+    # Build item rows
     current_row = []
     for i, tip in enumerate(page_items):
         current_row.append(InlineKeyboardButton(
-            text=tip.get("title", ""), 
+            text=tip.get("title", ""),
             callback_data=f"tips:item:{tip['id']}"
         ))
         if len(current_row) == num_columns or i == len(page_items) - 1:
             rows.append(current_row)
             current_row = []
-    nav: List[InlineKeyboardButton] = []
-    if page > 1:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"tips:sub:{category}:{subcategory}:{page-1}"))
-    total_pages = (len(items) + page_size - 1) // page_size
 
-    # Add page number buttons (e.g., 1,2,3,...)
+    # Pagination row
+    total_pages = (len(items) + page_size - 1) // page_size
+    nav_buttons = []
+
+    # Previous page button
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(
+            text="◀️",
+            callback_data=f"tips:sub:{category}:{subcategory}:{page-1}"
+        ))
+    else:
+        nav_buttons.append(InlineKeyboardButton(
+            text="◀️",
+            callback_data="noop"
+        ))
+
+    # Page number buttons (show up to 5 pages around current)
     start_page = max(1, page - 2)
     end_page = min(total_pages, page + 2)
     for p in range(start_page, end_page + 1):
         if p == page:
-            nav.append(InlineKeyboardButton(text=f"·{p}·", callback_data="noop"))
+            nav_buttons.append(InlineKeyboardButton(
+                text=f"·{p}·",
+                callback_data="noop"
+            ))
         else:
-            nav.append(InlineKeyboardButton(text=str(p), callback_data=f"tips:sub:{category}:{subcategory}:{p}"))
-    
-    if start_page > 1:
-        nav.insert(0, InlineKeyboardButton(text="1", callback_data=f"tips:sub:{category}:{subcategory}:1"))
-        if start_page > 2:
-            nav.insert(1, InlineKeyboardButton(text="...", callback_data="noop"))
-    
-    if end_page < total_pages:
-        if end_page < total_pages - 1:
-            nav.append(InlineKeyboardButton(text="...", callback_data="noop"))
-        nav.append(InlineKeyboardButton(text=str(total_pages), callback_data=f"tips:sub:{category}:{subcategory}:{total_pages}"))
-    
-    if start_page + page_size < len(items):
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"tips:sub:{category}:{subcategory}:{page+1}"))
-    
-    if nav:
-        rows.append(nav)
-    # ... rest unchanged ...
-    
-    if total_pages > 1:
-        nav.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"))
-    if start + page_size < len(items):
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"tips:sub:{category}:{subcategory}:{page+1}"))
-    if nav:
-        rows.append(nav)
+            nav_buttons.append(InlineKeyboardButton(
+                text=str(p),
+                callback_data=f"tips:sub:{category}:{subcategory}:{p}"
+            ))
+
+    # Next page button
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(
+            text="▶️",
+            callback_data=f"tips:sub:{category}:{subcategory}:{page+1}"
+        ))
+    else:
+        nav_buttons.append(InlineKeyboardButton(
+            text="▶️",
+            callback_data="noop"
+        ))
+
+    rows.append(nav_buttons)
+
+    # Back and Home buttons
     rows.append([
         InlineKeyboardButton(text=TEXTS[lang]["back"], callback_data=f"tips:cat:{category}"),
         InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
     ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def tip_card_kb(tip_id_str: str, back_payload: str, video_url: str = None, user_id: int = None) -> InlineKeyboardMarkup:
@@ -3900,6 +3915,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
