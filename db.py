@@ -159,6 +159,8 @@ async def init_db():
             ON CONFLICT (tip_id) DO NOTHING;
         ''')
 
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_tips_search_tsv ON tips_search USING GIN (tsv);')
+        
         print("Database tables, indexes, and timestamp columns verified/created.")
     finally:
         await conn.close()
