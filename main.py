@@ -1896,7 +1896,15 @@ DATA: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
 TEXTS = {
     "km": {  # Khmer
         # Main Menu
-        "welcome": "សួស្តី! 👋 សូមជ្រើសរើសមុខងារ",
+        "welcome": "🌟 **សូមស្វាគមន៍មកកាន់ Tips Bot!** 🌟\n\n"
+                  "ខ្ញុំនៅទីនេះដើម្បីជួយអ្នកជាមួយនឹងគន្លឹះភេសជ្ជៈ និងនំដុតនំ។\n\n"
+                  "**មុខងារសំខាន់ៗ:**\n"
+                  "🍹 គន្លឹះភេសជ្ជៈ – រកមើលភេសជ្ជៈផ្សេងៗ\n"
+                  "🧁 គន្លឹះនំ – រកមើលរបៀបធ្វើនំ\n"
+                  "🔎 ស្វែងរក – ស្វែងរកតាមពាក្យគន្លឹះ\n"
+                  "⭐ រក្សាទុក – មើលគន្លឹះដែលអ្នកចូលចិត្ត\n"
+                  "⚙️ កំណត់ – ផ្លាស់ប្តូរភាសា និងការកំណត់ផ្សេងៗ\n\n"
+                  "ជ្រើសរើសមុខងារខាងក្រោមដើម្បីចាប់ផ្តើម! 👇",
         "main_menu": "សូមជ្រើសរើសមុខងារ",
         "drink_tips": "🍹 គន្លឹះភេសជ្ជៈ",
         "bakery_tips": "🧁 គន្លឹះនំ",
@@ -1910,7 +1918,7 @@ TEXTS = {
         "ingredients_list": "📋 បញ្ជីសម្ភារៈ",  # Khmer
         # Inside TEXTS["km"] add:
         "products": "🛒 ផលិតផល",
-        
+
         # Navigation
         "back": "◀️ ត្រឡប់",
         "home": "🏠 មុខងារ",
@@ -1954,7 +1962,24 @@ TEXTS = {
         "contact": "📞 ទំនាក់ទំនង",
         "stats": "📊 ស្ថិតិ",
         "clear_favs": "🗑️ លុបការរក្សាទុក",
-        
+
+        "help_title": "❓ **របៀបប្រើប្រាស់**",
+        "help_text": (
+            "សួស្តី! នេះជាមគ្គុទ្ទេសក៍រហ័សសម្រាប់ប្រើប្រាស់បូត:\n\n"
+            "**ម៉ឺនុយមេ**\n"
+            "• ចុចប៊ូតុងខាងក្រោមដើម្បីរុករក\n\n"
+            "**ស្វែងរក**\n"
+            "• ចុច '🔎 ស្វែងរក' ហើយវាយពាក្យគន្លឹះ (ឧ. latte, cake)\n\n"
+            "**រក្សាទុក**\n"
+            "• ចុច '⭐ រក្សាទុក' លើគន្លឹះណាមួយដើម្បីរក្សាទុក\n"
+            "• ចុច '⭐ រក្សាទុក' ក្នុងម៉ឺនុយមេដើម្បីមើលគន្លឹះដែលបានរក្សាទុក\n\n"
+            "**ចែករំលែក**\n"
+            "• ចុច '📤 ចែករំលែក' លើគន្លឹះណាមួយដើម្បីផ្ញើទៅមិត្តភក្តិ\n\n"
+            "**ការកំណត់**\n"
+            "• ចុច '⚙️ កំណត់' ដើម្បីប្តូរភាសា ឬមើលស្ថិតិ\n\n"
+            "ត្រូវការជំនួយបន្ថែម? ទាក់ទង @admin_username"
+        ),
+
         # Language
         "khmer": "🇰🇭 ខ្មែរ",
         "english": "🇬🇧 English",
@@ -1962,7 +1987,15 @@ TEXTS = {
     },
     "en": {  # English
         # Main Menu
-        "welcome": "Hello! 👋 Please choose a function",
+        "welcome": "🌟 **Welcome to Tips Bot!** 🌟\n\n"
+                  "I'm here to help you with drink and bakery tips.\n\n"
+                  "**Main Features:**\n"
+                  "🍹 Drink Tips – Browse drink recipes\n"
+                  "🧁 Bakery Tips – Browse baking recipes\n"
+                  "🔎 Search – Find tips by keyword\n"
+                  "⭐ Favorites – View your saved tips\n"
+                  "⚙️ Settings – Change language and other settings\n\n"
+                  "Select a function below to get started! 👇",
         "main_menu": "Please choose a function",
         "drink_tips": "🍹 Drink Tips",
         "bakery_tips": "🧁 Bakery Tips",
@@ -2020,6 +2053,23 @@ TEXTS = {
         "contact": "📞 Contact",
         "stats": "📊 Statistics",
         "clear_favs": "🗑️ Clear Favorites",
+
+        "help_title": "❓ **How to Use**",
+        "help_text": (
+            "Hello! Here's a quick guide to using the bot:\n\n"
+            "**Main Menu**\n"
+            "• Use the buttons below to navigate\n\n"
+            "**Search**\n"
+            "• Click '🔎 Search' and type a keyword (e.g., latte, cake)\n\n"
+            "**Favorites**\n"
+            "• Click '⭐ Save' on any tip to save it\n"
+            "• Click '⭐ Favorites' in the main menu to view saved tips\n\n"
+            "**Share**\n"
+            "• Click '📤 Share' on any tip to send it to friends\n\n"
+            "**Settings**\n"
+            "• Click '⚙️ Settings' to change language or view stats\n\n"
+            "Need more help? Contact @admin_username"
+        ),
         
         # Language
         "khmer": "🇰🇭 Khmer",
@@ -2241,49 +2291,44 @@ async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: i
     ingredients: List[Dict[str, Any]] = tip.get("ingredients", [])
     steps: List[str] = tip.get("steps", [])
     lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
-    type_label = TEXTS[lang]["type_label"]
-    ingredients_label = TEXTS[lang]["ingredients"]
-    how_to_make_label = TEXTS[lang]["how_to_make"]
-    times_label = TEXTS[lang]["times"]
-    lines: List[str] = []
-    lines.append(f"📘 {title}")
-    lines.append(f"{type_label}: {subcat}")
-    lines.append(f"👁️ {view_count} {times_label} | ⭐ {fav_count} | 📤 {share_count}\n")
-    lines.append(ingredients_label)
-    max_prefix_length = 0
-    formatted_ingredients = []
+    
+    lines = []
+    
+    # Header with emoji and bold title
+    lines.append(f"📘 **{title}**")
+    lines.append(f"└ {TEXTS[lang]['type_label']}: `{subcat}`")
+    lines.append(f"└ 👁️ {view_count} views | ⭐ {fav_count} | 📤 {share_count}")
+    lines.append("")
+    
+    # Ingredients section
+    lines.append(f"**{TEXTS[lang]['ingredients']}**")
+    
     for r in ingredients:
-        no = str(r.get("no", ""))
-        ing = str(r.get("ingredient", ""))
-        amt = str(r.get("amount", ""))
-        uom = str(r.get("uom", ""))
-        rem = str(r.get("remark", ""))
-        prefix = f"{no}. {ing}"
-        max_prefix_length = max(max_prefix_length, len(prefix))
-        formatted_ingredients.append({
-            "prefix": prefix,
-            "amount": amt,
-            "uom": uom,
-            "remark": rem
-        })
-    target_column = max_prefix_length + 5
-    for item in formatted_ingredients:
-        prefix = item["prefix"]
-        amt = item["amount"]
-        uom = item["uom"]
-        rem = item["remark"]
-        dots_needed = target_column - len(prefix)
-        if dots_needed < 1:
-            dots_needed = 1
-        dots = "." * dots_needed
-        if rem:
-            line = f"{prefix}{dots}{amt}{uom} ({rem})"
+        no = r.get("no", "")
+        ing = r.get("ingredient", "")
+        amt = r.get("amount", "")
+        uom = r.get("uom", "")
+        rem = r.get("remark", "")
+        
+        if amt and uom:
+            amount_str = f"{amt}{uom}"
         else:
-            line = f"{prefix}{dots}{amt}{uom}"
+            amount_str = ""
+        
+        if rem:
+            line = f"• {no}. **{ing}** – {amount_str} _({rem})_"
+        else:
+            line = f"• {no}. **{ing}** – {amount_str}"
+        
         lines.append(line)
-    lines.append(f"\n{how_to_make_label}")
-    for i, s in enumerate(steps, start=1):
-        lines.append(f"{i}) {s}")
+    
+    lines.append("")
+    
+    # Steps section
+    lines.append(f"**{TEXTS[lang]['how_to_make']}**")
+    for i, s in enumerate(steps, 1):
+        lines.append(f"{i}. {s}")
+    
     return "\n".join(lines)
 
 async def render_ingredient_card(tip: Dict[str, Any], current_index: int, total_count: int, user_id: int = None) -> str:
@@ -2519,6 +2564,7 @@ nav_router = Router()  # for generic callbacks
 settings_router = Router()
 popular_router = Router()
 admin_router = Router()
+help_router = Router()
 
 class AdminStates(StatesGroup):
     choosing_category = State()
@@ -2543,10 +2589,14 @@ async def settings_menu(message: Message):
 async def greet_echo(message: Message):
     user_id = message.from_user.id
     if message.text in ["Hello", "hello", "Start", "start"]:
-        await set_user_lang(user_id, "en")                    # <-- await
-    lang = await get_user_lang(user_id)                       # <-- await
-    kb = await main_menu_kb(user_id)                          # <-- await
-    await message.answer(TEXTS[lang]["welcome"], reply_markup=kb)
+        await set_user_lang(user_id, "en")
+    lang = await get_user_lang(user_id)
+    kb = await main_menu_kb(user_id)
+    await message.answer(
+        TEXTS[lang]["welcome"], 
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 @start_router.message(F.text == "🏠 មុខងារ")
 @start_router.message(F.text == "🏠 Home")
@@ -2557,9 +2607,13 @@ async def back_home_message(message: Message):
 
 @start_router.message(CommandStart())
 async def cmd_start(message: Message):
-    lang = await get_user_lang(message.from_user.id)          # <-- await
-    kb = await main_menu_kb(message.from_user.id)             # <-- await
-    await message.answer(TEXTS[lang]["welcome"], reply_markup=kb)
+    lang = await get_user_lang(message.from_user.id)
+    kb = await main_menu_kb(message.from_user.id)
+    await message.answer(
+        TEXTS[lang]["welcome"], 
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 # --- Generic navigation callbacks
 @nav_router.callback_query(F.data == "nav:home")
@@ -3665,8 +3719,14 @@ async def admin_reload(message: Message):
     await CONTENT.ensure_loaded(force=True)
     await message.answer("✅ Cache reloaded from database.")
 
-
-
+@help_router.message(Command("help"))
+async def help_command(message: Message):
+    user_id = message.from_user.id
+    lang = await get_user_lang(user_id)
+    await message.answer(
+        TEXTS[lang]["help_text"],
+        parse_mode="Markdown"
+    )
 
 # =========================
 # APP BOOTSTRAP
@@ -3715,7 +3775,7 @@ async def main():
     dp.include_router(favorites_router)
     dp.include_router(settings_router)
     dp.include_router(admin_router)
-
+    dp.include_router(help_router)
     
     try:
         await dp.start_polling(bot)
@@ -3728,6 +3788,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
