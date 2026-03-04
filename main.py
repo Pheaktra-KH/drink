@@ -1919,6 +1919,7 @@ TEXTS = {
         "ingredients_list": "📋 បញ្ជីសម្ភារៈ",  # Khmer
         # Inside TEXTS["km"] add:
         "products": "🛒 ផលិតផល",
+        "new_tips": "🆕 គន្លឹះថ្មី",
 
         # Navigation
         "back": "◀️ ត្រឡប់",
@@ -2010,6 +2011,7 @@ TEXTS = {
         "ingredients_list": "📋 Ingredients List",  # English
         # Inside TEXTS["en"] add:
         "products": "🛒 Products",
+        "new_tips": "🆕 New Tips",
         
         # Navigation
         "back": "◀️ Back",
@@ -2376,7 +2378,7 @@ async def main_menu_kb(user_id: int = None) -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=TEXTS[lang]["drink_tips"]), 
              KeyboardButton(text=TEXTS[lang]["bakery_tips"])],
-            [KeyboardButton(text="🎲 Random"),   # <-- add this
+            [KeyboardButton(text=TEXTS[lang]["new_tips"]),   # <-- new button
              KeyboardButton(text=TEXTS[lang]["search"])],
             [KeyboardButton(text=TEXTS[lang]["favorites"]), 
              KeyboardButton(text=TEXTS[lang]["settings"])]
@@ -2589,6 +2591,8 @@ settings_router = Router()
 popular_router = Router()
 admin_router = Router()
 help_router = Router()
+new_router = Router()
+
 
 class AdminStates(StatesGroup):
     choosing_category = State()
@@ -3834,6 +3838,87 @@ async def help_command(message: Message):
         parse_mode="Markdown"
     )
 
+@new_router.message(F.text.in_(["🆕 New Tips", "🆕 គន្លឹះថ្មី"]))
+@new_router.message(Command("new"))
+async def new_tips(message: Message):
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    user_id = message.from_user.id
+    lang = await get_user_lang(user_id)
+    
+    # Fetch latest 10 tips (you can adjust limit)
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT t.id, t.title, c.category, c.subcategory
+            FROM tips t
+            JOIN categories c ON t.category_id = c.id
+            ORDER BY t.created_at DESC
+            LIMIT 10
+        ''')
+    
+    if not rows:
+        await message.answer("No tips found.")
+        return
+    
+    # Build an inline keyboard with these tips
+    kb = await new_tips_list_kb(rows, 1, user_id)  # page 1
+    await message.answer("🆕 **Latest Tips**", reply_markup=kb, parse_mode="Markdown")
+
+async def new_tips_list_kb(tips: List[Dict], page: int, page_size: int = 10, user_id: int = None) -> InlineKeyboardMarkup:
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
+    start = (page - 1) * page_size
+    page_tips = tips[start:start + page_size]
+    rows = []
+    
+    # One tip per row (like search results)
+    for tip in page_tips:
+        rows.append([InlineKeyboardButton(
+            text=tip['title'],
+            callback_data=f"tips:item:{tip['id']}"
+        )])
+    
+    # Pagination row (if needed)
+    total_pages = (len(tips) + page_size - 1) // page_size
+    if total_pages > 1:
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"new:page:{page-1}"))
+        nav.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton(text="➡️", callback_data=f"new:page:{page+1}"))
+        rows.append(nav)
+    
+    # Back and Home
+    rows.append([
+        InlineKeyboardButton(text=TEXTS[lang]["back"], callback_data="nav:back"),
+        InlineKeyboardButton(text=TEXTS[lang]["home"], callback_data="nav:home"),
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+@new_router.callback_query(F.data.startswith("new:page:"))
+async def new_tips_page(cb: CallbackQuery):
+    page = int(cb.data.split(":")[2])
+    await cb.bot.send_chat_action(cb.message.chat.id, "typing")
+    
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT t.id, t.title, c.category, c.subcategory
+            FROM tips t
+            JOIN categories c ON t.category_id = c.id
+            ORDER BY t.created_at DESC
+            LIMIT 10 OFFSET $1
+        ''', (page - 1) * 10)
+    
+    if not rows:
+        await cb.answer("No more tips.")
+        return
+    
+    kb = await new_tips_list_kb(rows, page, user_id=cb.from_user.id)
+    await cb.message.edit_text("🆕 **Latest Tips**", reply_markup=kb, parse_mode="Markdown")
+    await cb.answer()
+
+
+
 # =========================
 # APP BOOTSTRAP
 # =========================
@@ -3882,6 +3967,7 @@ async def main():
     dp.include_router(settings_router)
     dp.include_router(admin_router)
     dp.include_router(help_router)
+    dp.include_router(new_router)
     
     try:
         await dp.start_polling(bot)
@@ -3894,6 +3980,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
