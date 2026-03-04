@@ -2122,7 +2122,16 @@ class ContentStore:
         self._tips_cache = None          # dict tip_id -> tip dict
         self._subcats_cache = None       # dict category -> list of subcats
         self._items_cache = None          # dict (category,subcategory) -> list of tips
+        self._last_load = 0
+        self._cache_ttl = 3600  # 1 hour
 
+    async def ensure_loaded(self, force=False):
+        now = time.time()
+        if force or self._categories_cache is None or (now - self._last_load) > self._cache_ttl:
+            await self._load_categories()
+            await self._load_tips()
+            self._last_load = now
+    
     async def _load_categories(self):
         """Load all categories into cache."""
         async with DB_POOL.acquire() as conn:
@@ -2455,6 +2464,33 @@ async def item_list_kb(category: str, subcategory: str, items: List[Dict[str, An
     if page > 1:
         nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"tips:sub:{category}:{subcategory}:{page-1}"))
     total_pages = (len(items) + page_size - 1) // page_size
+
+    # Add page number buttons (e.g., 1,2,3,...)
+    start_page = max(1, page - 2)
+    end_page = min(total_pages, page + 2)
+    for p in range(start_page, end_page + 1):
+        if p == page:
+            nav.append(InlineKeyboardButton(text=f"·{p}·", callback_data="noop"))
+        else:
+            nav.append(InlineKeyboardButton(text=str(p), callback_data=f"tips:sub:{category}:{subcategory}:{p}"))
+    
+    if start_page > 1:
+        nav.insert(0, InlineKeyboardButton(text="1", callback_data=f"tips:sub:{category}:{subcategory}:1"))
+        if start_page > 2:
+            nav.insert(1, InlineKeyboardButton(text="...", callback_data="noop"))
+    
+    if end_page < total_pages:
+        if end_page < total_pages - 1:
+            nav.append(InlineKeyboardButton(text="...", callback_data="noop"))
+        nav.append(InlineKeyboardButton(text=str(total_pages), callback_data=f"tips:sub:{category}:{subcategory}:{total_pages}"))
+    
+    if start_page + page_size < len(items):
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"tips:sub:{category}:{subcategory}:{page+1}"))
+    
+    if nav:
+        rows.append(nav)
+    # ... rest unchanged ...
+    
     if total_pages > 1:
         nav.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"))
     if start + page_size < len(items):
@@ -2711,6 +2747,7 @@ async def back_to_bakery(cb: CallbackQuery):
 @drink_router.callback_query(F.data.startswith("tips:sub:drink:"))
 @bakery_router.callback_query(F.data.startswith("tips:sub:bakery:"))
 async def open_sub(cb: CallbackQuery):
+    await cb.bot.send_chat_action(cb.message.chat.id, "typing")   # <-- add here
     parts = cb.data.split(":")
     if len(parts) != 5:
         await cb.answer()
@@ -2830,6 +2867,7 @@ def ingredients_album_kb(tip_id_str: str, category: str, subcategory: str, curre
 @drink_router.callback_query(F.data.startswith("tips:item:"))
 @bakery_router.callback_query(F.data.startswith("tips:item:"))
 async def open_tip(cb: CallbackQuery):
+    await cb.bot.send_chat_action(cb.message.chat.id, "typing")   # <-- add here
     tip_id_str = cb.data.replace("tips:item:", "", 1)
     tip = await CONTENT.get_tip(tip_id_str)
 
@@ -3194,6 +3232,7 @@ async def search_entry(message: Message, state: FSMContext):
 
 @search_router.message(SearchStates.waiting_query)
 async def do_search(message: Message, state: FSMContext):
+    await message.bot.send_chat_action(message.chat.id, "typing")   # <-- add here
     q = message.text
     results = await CONTENT.search(q)
     await state.clear()
@@ -3238,6 +3277,7 @@ Current: {'Khmer' if lang == 'km' else 'English'}
 @popular_router.message(F.text == "/popular")
 async def popular_tips(message: Message):
     user_id = message.from_user.id
+    await message.bot.send_chat_action(message.chat.id, "typing")   # <-- add here
     lang = await get_user_lang(user_id)
     async with DB_POOL.acquire() as conn:
         rows = await conn.fetch('''
@@ -3280,6 +3320,38 @@ async def recent_tips(message: Message):
             viewed = row['viewed_at'].strftime("%Y-%m-%d %H:%M")
             lines.append(f"• {tip['title']} – viewed on {viewed}")
     await message.answer("\n".join(lines))
+
+@popular_router.message(Command("random"))
+async def random_tip(message: Message):
+    await message.bot.send_chat_action(message.chat.id, "typing")   # <-- add here
+    user_id = message.from_user.id
+    async with DB_POOL.acquire() as conn:
+        tip_id = await conn.fetchval('SELECT id FROM tips ORDER BY RANDOM() LIMIT 1')
+    if not tip_id:
+        await message.answer("No tips available.")
+        return
+    # Simulate opening the tip (like open_tip but without callback)
+    tip = await CONTENT.get_tip(tip_id)
+    if not tip:
+        await message.answer("Tip not found.")
+        return
+    # Render and send tip (similar to open_tip)
+    view_count = await CONTENT.increment_view(tip_id)
+    fav_count = await CONTENT.get_fav_count(tip_id)
+    share_count = await CONTENT.get_share_count(tip_id)
+    
+    photo = tip.get("picture_file_id")
+    if photo:
+        await message.answer_photo(photo=photo, caption=tip["title"])
+    else:
+        seed = tip_id.replace("/", "_")
+        await message.answer_photo(photo=f"https://picsum.photos/seed/{seed}/640/480", caption=tip["title"])
+    
+    text = await render_tip_card(tip, view_count, fav_count, share_count, user_id)
+    back_payload = f"tips:sub:{tip['category']}:{tip['subcategory']}:1"
+    video_url = tip.get("video_url", None)
+    kb = await tip_card_kb(tip_id, back_payload, video_url, user_id)
+    await message.answer(text, reply_markup=kb)
 
 # --- Language Change Handler
 @settings_router.callback_query(F.data.startswith("lang:"))
@@ -3536,6 +3608,7 @@ async def admin_list(message: Message):
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Access denied.")
         return
+    await message.bot.send_chat_action(message.chat.id, "typing")   # <-- add here
     # Parse page number from command, e.g., /admin_list 2
     parts = message.text.split()
     page = 1
@@ -3827,6 +3900,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
