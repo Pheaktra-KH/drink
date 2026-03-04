@@ -1962,7 +1962,7 @@ TEXTS = {
         "contact": "📞 ទំនាក់ទំនង",
         "stats": "📊 ស្ថិតិ",
         "clear_favs": "🗑️ លុបការរក្សាទុក",
-
+        "no_recent": "មិនមានចូលមើល",
         "help_title": "❓ **របៀបប្រើប្រាស់**",
         "help_text": (
             "សួស្តី! នេះជាមគ្គុទ្ទេសក៍រហ័សសម្រាប់ប្រើប្រាស់បូត:\n\n"
@@ -2034,6 +2034,7 @@ TEXTS = {
         # Favorites
         "favorites_list": "⭐ Saved content:",
         "no_favorites": "No saved content yet",
+        "no_recent": "No recent",
         "no_popular": "No popular tips yet.",          # <-- add this
         "saved": "✅ Saved",
         "already_saved": "⭐ Already saved",
@@ -2293,38 +2294,35 @@ async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: i
     lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     
     lines = []
-    
-    # Header with emoji and bold title
     lines.append(f"📘 **{title}**")
     lines.append(f"└ {TEXTS[lang]['type_label']}: `{subcat}`")
-    lines.append(f"└ 👁️ {view_count} views | ⭐ {fav_count} | 📤 {share_count}")
-    lines.append("")
+    lines.append(f"└ 👁️ {view_count} views | ⭐ {fav_count} | 📤 {share_count}\n")
     
-    # Ingredients section
-    lines.append(f"**{TEXTS[lang]['ingredients']}**")
-    
-    for r in ingredients:
-        no = r.get("no", "")
-        ing = r.get("ingredient", "")
-        amt = r.get("amount", "")
-        uom = r.get("uom", "")
-        rem = r.get("remark", "")
+    # Ingredients in a table-like format using code block
+    if ingredients:
+        lines.append(f"**{TEXTS[lang]['ingredients']}**")
+        # Calculate max widths for alignment
+        max_no = max(len(str(i.get("no", ""))) for i in ingredients)
+        max_ing = max(len(i.get("ingredient", "")) for i in ingredients)
+        max_amt = max(len(str(i.get("amount", "")) + i.get("uom", "")) for i in ingredients)
         
-        if amt and uom:
-            amount_str = f"{amt}{uom}"
-        else:
-            amount_str = ""
+        # Header
+        header = f"{'#':<{max_no}}  {'Ingredient':<{max_ing}}  {'Amount':<{max_amt}}  Remark"
+        lines.append(f"`{header}`")
+        lines.append("`" + "-" * (max_no + max_ing + max_amt + 12) + "`")
         
-        if rem:
-            line = f"• {no}. **{ing}** – {amount_str} _({rem})_"
-        else:
-            line = f"• {no}. **{ing}** – {amount_str}"
-        
-        lines.append(line)
+        for r in ingredients:
+            no = str(r.get("no", ""))
+            ing = r.get("ingredient", "")
+            amt = str(r.get("amount", ""))
+            uom = r.get("uom", "")
+            rem = r.get("remark", "")
+            amount_str = f"{amt}{uom}" if amt and uom else ""
+            line = f"{no:<{max_no}}  {ing:<{max_ing}}  {amount_str:<{max_amt}}  {rem}"
+            lines.append(f"`{line}`")
+        lines.append("")
     
-    lines.append("")
-    
-    # Steps section
+    # Steps
     lines.append(f"**{TEXTS[lang]['how_to_make']}**")
     for i, s in enumerate(steps, 1):
         lines.append(f"{i}. {s}")
@@ -3259,6 +3257,30 @@ async def popular_tips(message: Message):
             lines.append(f"{i}. {tip['title']} – {row['view_count']} views")
     await message.answer("\n".join(lines))
 
+@popular_router.message(Command("recent"))
+async def recent_tips(message: Message):
+    user_id = message.from_user.id
+    lang = await get_user_lang(user_id)
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT tip_id, viewed_at
+            FROM user_views
+            WHERE user_id = $1
+            ORDER BY viewed_at DESC
+            LIMIT 5
+        ''', user_id)
+    if not rows:
+        await message.answer(TEXTS[lang].get("no_recent", "No recently viewed tips."))
+        return
+    lines = ["🕒 **Recently Viewed**\n"]
+    for row in rows:
+        tip = await CONTENT.get_tip(row['tip_id'])
+        if tip:
+            # Format time (e.g., "2 hours ago") – for simplicity, just show time
+            viewed = row['viewed_at'].strftime("%Y-%m-%d %H:%M")
+            lines.append(f"• {tip['title']} – viewed on {viewed}")
+    await message.answer("\n".join(lines))
+
 # --- Language Change Handler
 @settings_router.callback_query(F.data.startswith("lang:"))
 async def change_language(cb: CallbackQuery):
@@ -3637,6 +3659,23 @@ async def admin_add_picture(message: Message, state: FSMContext):
     await state.set_state(AdminStates.entering_video)
     await message.answer("Enter video URL (or /skip if none):")
 
+@admin_router.message(AdminStates.entering_picture, F.photo)
+async def admin_add_picture_photo(message: Message, state: FSMContext):
+    # Get the largest photo file_id
+    file_id = message.photo[-1].file_id
+    await state.update_data(picture_file_id=file_id)
+    await state.set_state(AdminStates.entering_video)
+    await message.answer("Photo saved! Now enter video URL (or /skip if none):")
+
+@admin_router.message(AdminStates.entering_picture, F.text)
+async def admin_add_picture_text(message: Message, state: FSMContext):
+    pic = message.text.strip()
+    if pic == "/skip":
+        pic = ""
+    await state.update_data(picture_file_id=pic)
+    await state.set_state(AdminStates.entering_video)
+    await message.answer("Enter video URL (or /skip if none):")
+
 @admin_router.message(AdminStates.entering_video)
 async def admin_add_video(message: Message, state: FSMContext):
     vid = message.text.strip()
@@ -3788,6 +3827,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
