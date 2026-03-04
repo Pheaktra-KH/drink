@@ -27,6 +27,7 @@ from typing import Dict, List, Any
 
 import asyncpg
 import json
+import time
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -2375,9 +2376,10 @@ async def main_menu_kb(user_id: int = None) -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=TEXTS[lang]["drink_tips"]), 
              KeyboardButton(text=TEXTS[lang]["bakery_tips"])],
-            [KeyboardButton(text=TEXTS[lang]["search"]), 
-             KeyboardButton(text=TEXTS[lang]["favorites"])],
-            [KeyboardButton(text=TEXTS[lang]["settings"])]
+            [KeyboardButton(text="🎲 Random"),   # <-- add this
+             KeyboardButton(text=TEXTS[lang]["search"])],
+            [KeyboardButton(text=TEXTS[lang]["favorites"]), 
+             KeyboardButton(text=TEXTS[lang]["settings"])]
         ],
         resize_keyboard=True
     )
@@ -3341,6 +3343,10 @@ async def random_tip(message: Message):
     kb = await tip_card_kb(tip_id, back_payload, video_url, user_id)
     await message.answer(text, reply_markup=kb)
 
+@popular_router.message(F.text == "🎲 Random")
+async def random_tip_button(message: Message):
+    await random_tip(message)   # reuse the same function
+
 # --- Language Change Handler
 @settings_router.callback_query(F.data.startswith("lang:"))
 async def change_language(cb: CallbackQuery):
@@ -3888,6 +3894,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
