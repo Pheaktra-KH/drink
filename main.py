@@ -1920,7 +1920,13 @@ TEXTS = {
         # Inside TEXTS["km"] add:
         "products": "🛒 ផលិតផល",
         "new_tips": "🆕 គន្លឹះថ្មី",
-
+        "search_choose_category": "ជ្រើសរើសប្រភេទសម្រាប់ស្វែងរក៖",
+        "search_category_drink": "🍹 ភេសជ្ជៈ",
+        "search_category_bakery": "🧁 នំ",
+        "search_category_all": "🌐 ទាំងអស់",
+        "search_enter_keyword": "បញ្ចូលពាក្យស្វែងរករបស់អ្នក៖",
+        "cancel": "❌ បោះបង់",
+        
         # Navigation
         "back": "◀️ ត្រឡប់",
         "home": "🏠 មុខងារ",
@@ -2012,6 +2018,12 @@ TEXTS = {
         # Inside TEXTS["en"] add:
         "products": "🛒 Products",
         "new_tips": "🆕 New Tips",
+        "search_choose_category": "Choose a category to search:",
+        "search_category_drink": "🍹 Drinks",
+        "search_category_bakery": "🧁 Bakery",
+        "search_category_all": "🌐 All",
+        "search_enter_keyword": "Enter your search keyword:",
+        "cancel": "❌ Cancel",
         
         # Navigation
         "back": "◀️ Back",
@@ -2574,6 +2586,7 @@ async def settings_kb(user_id: int = None) -> InlineKeyboardMarkup:
 # STATES
 # =========================
 class SearchStates(StatesGroup):
+    waiting_category = State()   # new
     waiting_query = State()
 
 
@@ -3220,21 +3233,72 @@ async def share_tip(cb: CallbackQuery):
 @search_router.message(F.text == "🔎 ស្វែងរក")
 @search_router.message(F.text == "🔎 Search")
 async def search_entry(message: Message, state: FSMContext):
-    lang = await get_user_lang(message.from_user.id)       # <-- await
-    await message.answer(TEXTS[lang]["search_prompt"])
+    lang = await get_user_lang(message.from_user.id)
+    # Show inline keyboard with category choices
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=TEXTS[lang]["search_category_drink"], callback_data="search_cat:drink"),
+            InlineKeyboardButton(text=TEXTS[lang]["search_category_bakery"], callback_data="search_cat:bakery"),
+        ],
+        [InlineKeyboardButton(text=TEXTS[lang]["search_category_all"], callback_data="search_cat:all")],
+        [InlineKeyboardButton(text=TEXTS[lang]["cancel"], callback_data="search_cat:cancel")]
+    ])
+    await message.answer(TEXTS[lang]["search_choose_category"], reply_markup=kb)
+    await state.set_state(SearchStates.waiting_category)
+
+@search_router.callback_query(SearchStates.waiting_category, F.data.startswith("search_cat:"))
+async def search_category_chosen(cb: CallbackQuery, state: FSMContext):
+    cat = cb.data.split(":")[1]
+    if cat == "cancel":
+        await state.clear()
+        await cb.message.delete()
+        await cb.answer("Cancelled.")
+        return
+    await state.update_data(category=cat)
+    lang = await get_user_lang(cb.from_user.id)
+    await cb.message.edit_text(TEXTS[lang]["search_enter_keyword"])
     await state.set_state(SearchStates.waiting_query)
+    await cb.answer()
 
 @search_router.message(SearchStates.waiting_query)
 async def do_search(message: Message, state: FSMContext):
-    await message.bot.send_chat_action(message.chat.id, "typing")   # <-- add here
+    await message.bot.send_chat_action(message.chat.id, "typing")
     q = message.text
-    results = await CONTENT.search(q)
+    data = await state.get_data()
+    category = data.get("category", "all")  # default to all
     await state.clear()
-    lang = await get_user_lang(message.from_user.id)       # <-- await
+    
+    # Build the search query with optional category filter
+    async with DB_POOL.acquire() as conn:
+        if category == "all":
+            rows = await conn.fetch('''
+                SELECT t.id
+                FROM tips t
+                JOIN categories c ON t.category_id = c.id
+                WHERE tsv @@ plainto_tsquery('english', $1)
+                ORDER BY ts_rank(tsv, plainto_tsquery('english', $1)) DESC
+                LIMIT 20
+            ''', q)
+        else:
+            rows = await conn.fetch('''
+                SELECT t.id
+                FROM tips t
+                JOIN categories c ON t.category_id = c.id
+                WHERE c.category = $2
+                  AND tsv @@ plainto_tsquery('english', $1)
+                ORDER BY ts_rank(tsv, plainto_tsquery('english', $1)) DESC
+                LIMIT 20
+            ''', q, category)
+    
+    tip_ids = [r['id'] for r in rows]
+    await CONTENT.ensure_loaded()
+    results = [CONTENT._tips_cache[tid] for tid in tip_ids if tid in CONTENT._tips_cache]
+    
+    lang = await get_user_lang(message.from_user.id)
     if not results:
         await message.answer(TEXTS[lang]["no_results"])
         return
-    kb = await search_results_kb(results, message.from_user.id)   # <-- await
+    kb = await search_results_kb(results, message.from_user.id)
     await message.answer(TEXTS[lang]["search_results"], reply_markup=kb)
 
 # --- Favorites
@@ -3980,6 +4044,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
