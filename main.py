@@ -2132,31 +2132,26 @@ def is_admin(user_id: int) -> bool:
 # =========================
 class ContentStore:
     def __init__(self):
-        # We'll cache categories and tips after first load
-        self._categories_cache = None   # list of (id, category, subcategory)
+        # Caches for categories and tips
+        self._categories_cache = None   # list of dict with id, category, subcategory
         self._tips_cache = None          # dict tip_id -> tip dict
         self._subcats_cache = None       # dict category -> list of subcats
         self._items_cache = None          # dict (category,subcategory) -> list of tips
         self._last_load = 0
         self._cache_ttl = 3600  # 1 hour
 
-    async def ensure_loaded(self, force=False):
-        now = time.time()
-        if force or self._categories_cache is None or (now - self._last_load) > self._cache_ttl:
-            await self._load_categories()
-            await self._load_tips()
-            self._last_load = now
-    
     async def _load_categories(self):
         """Load all categories into cache."""
         async with DB_POOL.acquire() as conn:
-            rows = await conn.fetch('SELECT id, category, subcategory FROM categories ORDER BY category, display_order, subcategory')
+            rows = await conn.fetch(
+                'SELECT id, category, subcategory FROM categories ORDER BY category, display_order, subcategory'
+            )
             self._categories_cache = [dict(r) for r in rows]
             # Build subcategories index
             self._subcats_cache = {}
             for r in rows:
                 self._subcats_cache.setdefault(r['category'], []).append(r['subcategory'])
-    
+
     async def _load_tips(self):
         """Load all tips into cache."""
         async with DB_POOL.acquire() as conn:
@@ -2186,10 +2181,11 @@ class ContentStore:
                 self._items_cache.setdefault(key, []).append(tip)
 
     async def ensure_loaded(self, force=False):
-        if force or self._categories_cache is None:
+        now = time.time()
+        if force or self._categories_cache is None or (now - self._last_load) > self._cache_ttl:
             await self._load_categories()
-        if force or self._tips_cache is None:
             await self._load_tips()
+            self._last_load = now
 
     # ---------- public methods ----------
     async def list_subcats(self, category: str) -> List[str]:
@@ -2208,7 +2204,6 @@ class ContentStore:
         q = (query or "").strip().lower()
         if not q:
             return []
-        # Use PostgreSQL full‑text search
         async with DB_POOL.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT t.id
@@ -2222,7 +2217,7 @@ class ContentStore:
             await self.ensure_loaded()
             return [self._tips_cache[tid] for tid in tip_ids if tid in self._tips_cache]
 
-    # The favorites methods remain unchanged (they already use DB)
+    # ---------- favorites ----------
     async def add_fav(self, user_id: int, tip_id: str) -> bool:
         async with DB_POOL.acquire() as conn:
             try:
@@ -2247,7 +2242,14 @@ class ContentStore:
         async with DB_POOL.acquire() as conn:
             await conn.execute('DELETE FROM user_favorites WHERE user_id = $1', user_id)
 
-    # tip stats methods remain async – they already use DB
+    # ---------- tip stats ----------
+    async def _ensure_tip_stats(self, tip_id: str):
+        async with DB_POOL.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO tip_stats (tip_id) VALUES ($1)
+                ON CONFLICT (tip_id) DO NOTHING
+            ''', tip_id)
+
     async def increment_view(self, tip_id: str) -> int:
         await self._ensure_tip_stats(tip_id)
         async with DB_POOL.acquire() as conn:
@@ -2289,13 +2291,6 @@ class ContentStore:
         await self._ensure_tip_stats(tip_id)
         async with DB_POOL.acquire() as conn:
             return await conn.fetchval('SELECT shares FROM tip_stats WHERE tip_id = $1', tip_id) or 0
-
-    async def _ensure_tip_stats(self, tip_id: str):
-        async with DB_POOL.acquire() as conn:
-            await conn.execute('''
-                INSERT INTO tip_stats (tip_id) VALUES ($1)
-                ON CONFLICT (tip_id) DO NOTHING
-            ''', tip_id)
 
     async def log_view(self, user_id: int, tip_id: str) -> None:
         """Record that a user viewed a tip."""
@@ -4045,6 +4040,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
