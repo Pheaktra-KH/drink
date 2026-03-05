@@ -118,6 +118,15 @@ async def init_db():
             $$ LANGUAGE plpgsql;
         ''')
 
+        # Add display_order column to tips (for item ordering)
+        await conn.execute('''
+            ALTER TABLE tips ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0;
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_tips_category_order
+            ON tips (category_id, display_order);
+        ''')
+        
         # user_views table for tracking user tip views
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_views (
