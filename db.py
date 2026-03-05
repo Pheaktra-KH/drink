@@ -160,8 +160,49 @@ async def init_db():
         ''')
 
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_tips_search_tsv ON tips_search USING GIN (tsv);')
-        
-        print("Database tables, indexes, and timestamp columns verified/created.")
+
+        # --- NEW: Foreign key constraints for referential integrity ---
+        # Add foreign key from user_favorites to tips (if not already present)
+        await conn.execute('''
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_favorites_tip_id'
+                ) THEN
+                    ALTER TABLE user_favorites
+                    ADD CONSTRAINT fk_user_favorites_tip_id
+                    FOREIGN KEY (tip_id) REFERENCES tips(id) ON DELETE CASCADE;
+                END IF;
+            END;
+            $$;
+        ''')
+
+        await conn.execute('''
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_views_tip_id'
+                ) THEN
+                    ALTER TABLE user_views
+                    ADD CONSTRAINT fk_user_views_tip_id
+                    FOREIGN KEY (tip_id) REFERENCES tips(id) ON DELETE CASCADE;
+                END IF;
+            END;
+            $$;
+        ''')
+
+        # --- NEW: Composite indexes for common queries ---
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_favorites_user_created
+            ON user_favorites (user_id, created_at);
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_views_user_viewed
+            ON user_views (user_id, viewed_at);
+        ''')
+
+        print("Database tables, indexes, foreign keys, and timestamp columns verified/created.")
     finally:
         await conn.close()
 
