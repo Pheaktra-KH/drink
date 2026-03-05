@@ -53,11 +53,16 @@ async def init_db():
                 id SERIAL PRIMARY KEY,
                 category TEXT NOT NULL,
                 subcategory TEXT NOT NULL,
-                display_order INTEGER DEFAULT 0,   -- <-- new column for ordering
                 UNIQUE(category, subcategory)
             )
         ''')
-        # Index on (category, display_order) for faster sorting
+
+        # --- Add display_order column if not exists ---
+        await conn.execute('''
+            ALTER TABLE categories ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0;
+        ''')
+
+        # Now create the index that uses display_order
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_categories_order
             ON categories (category, display_order, subcategory);
@@ -218,7 +223,6 @@ async def migrate_data(data: dict):
             return
 
         for category_name, subcats in data.items():
-            # Assign an order number based on insertion order
             order = 0
             for subcat_name, tips_list in subcats.items():
                 cat_id = await conn.fetchval('''
@@ -226,7 +230,7 @@ async def migrate_data(data: dict):
                     VALUES ($1, $2, $3, NOW(), NOW())
                     RETURNING id
                 ''', category_name, subcat_name, order)
-                order += 1   # increment for next subcategory
+                order += 1
 
                 for tip in tips_list:
                     ingredients_json = json.dumps(tip.get("ingredients", []))
