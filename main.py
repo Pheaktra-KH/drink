@@ -2150,7 +2150,7 @@ class ContentStore:
     async def _load_categories(self):
         """Load all categories into cache."""
         async with DB_POOL.acquire() as conn:
-            rows = await conn.fetch('SELECT id, category, subcategory FROM categories ORDER BY category, subcategory')
+            rows = await conn.fetch('SELECT id, category, subcategory FROM categories ORDER BY category, display_order, subcategory')
             self._categories_cache = [dict(r) for r in rows]
             # Build subcategories index
             self._subcats_cache = {}
@@ -2160,12 +2160,18 @@ class ContentStore:
     async def _load_tips(self):
         """Load all tips into cache."""
         async with DB_POOL.acquire() as conn:
+            max_order = await conn.fetchval('''
+                SELECT COALESCE(MAX(display_order), -1) + 1
+                FROM tips
+                WHERE category_id = $1
+            ''', data['category_id'])
             rows = await conn.fetch('''
                 SELECT t.id, t.title, t.ingredients, t.steps,
                        t.picture_file_id, t.video_url,
                        c.category, c.subcategory
                 FROM tips t
                 JOIN categories c ON t.category_id = c.id
+                ORDER BY c.category, c.subcategory, t.display_order
             ''')
             self._tips_cache = {}
             self._items_cache = {}
@@ -4044,6 +4050,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
