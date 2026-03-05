@@ -2156,34 +2156,34 @@ class ContentStore:
             self._subcats_cache = {}
             for r in rows:
                 self._subcats_cache.setdefault(r['category'], []).append(r['subcategory'])
-
-async def _load_tips(self):
-    """Load all tips into cache."""
-    async with DB_POOL.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT t.id, t.title, t.ingredients, t.steps,
-                   t.picture_file_id, t.video_url,
-                   c.category, c.subcategory
-            FROM tips t
-            JOIN categories c ON t.category_id = c.id
-            ORDER BY c.category, c.subcategory, t.display_order
-        ''')
-        self._tips_cache = {}
-        self._items_cache = {}
-        for r in rows:
-            tip = {
-                "id": r["id"],
-                "title": r["title"],
-                "category": r["category"],
-                "subcategory": r["subcategory"],
-                "ingredients": json.loads(r["ingredients"]),
-                "steps": json.loads(r["steps"]),
-                "picture_file_id": r["picture_file_id"],
-                "video_url": r["video_url"]
-            }
-            self._tips_cache[r["id"]] = tip
-            key = (r["category"], r["subcategory"])
-            self._items_cache.setdefault(key, []).append(tip)
+    
+    async def _load_tips(self):
+        """Load all tips into cache."""
+        async with DB_POOL.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT t.id, t.title, t.ingredients, t.steps,
+                       t.picture_file_id, t.video_url,
+                       c.category, c.subcategory
+                FROM tips t
+                JOIN categories c ON t.category_id = c.id
+                ORDER BY c.category, c.subcategory, t.display_order
+            ''')
+            self._tips_cache = {}
+            self._items_cache = {}
+            for r in rows:
+                tip = {
+                    "id": r["id"],
+                    "title": r["title"],
+                    "category": r["category"],
+                    "subcategory": r["subcategory"],
+                    "ingredients": json.loads(r["ingredients"]),
+                    "steps": json.loads(r["steps"]),
+                    "picture_file_id": r["picture_file_id"],
+                    "video_url": r["video_url"]
+                }
+                self._tips_cache[r["id"]] = tip
+                key = (r["category"], r["subcategory"])
+                self._items_cache.setdefault(key, []).append(tip)
 
     async def ensure_loaded(self, force=False):
         if force or self._categories_cache is None:
@@ -4045,6 +4045,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
