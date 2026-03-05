@@ -53,8 +53,14 @@ async def init_db():
                 id SERIAL PRIMARY KEY,
                 category TEXT NOT NULL,
                 subcategory TEXT NOT NULL,
+                display_order INTEGER DEFAULT 0,   -- <-- new column for ordering
                 UNIQUE(category, subcategory)
             )
+        ''')
+        # Index on (category, display_order) for faster sorting
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_categories_order
+            ON categories (category, display_order, subcategory);
         ''')
 
         # tips table
@@ -169,14 +175,12 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_user_views_user_viewed
             ON user_views (user_id, viewed_at);
         ''')
-
-        # --- NEW: Index on viewed_at for faster time-based queries ---
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_user_views_viewed_at
             ON user_views (viewed_at);
         ''')
 
-        # --- NEW: User activity log table ---
+        # User activity log table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_activity_log (
                 id BIGSERIAL PRIMARY KEY,
@@ -214,12 +218,15 @@ async def migrate_data(data: dict):
             return
 
         for category_name, subcats in data.items():
+            # Assign an order number based on insertion order
+            order = 0
             for subcat_name, tips_list in subcats.items():
                 cat_id = await conn.fetchval('''
-                    INSERT INTO categories (category, subcategory, created_at, updated_at)
-                    VALUES ($1, $2, NOW(), NOW())
+                    INSERT INTO categories (category, subcategory, display_order, created_at, updated_at)
+                    VALUES ($1, $2, $3, NOW(), NOW())
                     RETURNING id
-                ''', category_name, subcat_name)
+                ''', category_name, subcat_name, order)
+                order += 1   # increment for next subcategory
 
                 for tip in tips_list:
                     ingredients_json = json.dumps(tip.get("ingredients", []))
@@ -241,6 +248,6 @@ async def migrate_data(data: dict):
                         tip.get("picture_file_id", ""),
                         tip.get("video_url", "")
                     )
-        print("Initial data migrated to database (with timestamps).")
+        print("Initial data migrated to database (with timestamps and order).")
     finally:
         await conn.close()
