@@ -8,6 +8,10 @@ async def init_db():
     """Create tables and indexes if they don't exist."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
+        # Drop the faulty trigger and function if they exist (cleanup)
+        await conn.execute('DROP TRIGGER IF EXISTS tsvector_update ON tips;')
+        await conn.execute('DROP FUNCTION IF EXISTS tips_tsv_trigger();')
+
         # user_favorites table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_favorites (
@@ -64,7 +68,7 @@ async def init_db():
             ON categories (category, display_order, subcategory);
         ''')
 
-        # NEW: subcategory_translations table
+        # subcategory_translations table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS subcategory_translations (
                 category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
@@ -90,6 +94,13 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_tips_category_id
             ON tips (category_id)
         ''')
+        await conn.execute('''
+            ALTER TABLE tips ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0;
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_tips_category_order
+            ON tips (category_id, display_order);
+        ''')
 
         # tips_search table for full‑text search
         await conn.execute('''
@@ -99,7 +110,7 @@ async def init_db():
             )
         ''')
 
-        # Function to update tips_search when tips change
+        # Function to update tips_search when tips change (correct version)
         await conn.execute('''
             CREATE OR REPLACE FUNCTION tips_search_update() RETURNS trigger AS $$
             BEGIN
@@ -118,15 +129,13 @@ async def init_db():
             $$ LANGUAGE plpgsql;
         ''')
 
-        # Add display_order column to tips (for item ordering)
+        # Trigger on tips
         await conn.execute('''
-            ALTER TABLE tips ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0;
+            DROP TRIGGER IF EXISTS search_trigger ON tips;
+            CREATE TRIGGER search_trigger AFTER INSERT OR UPDATE
+            ON tips FOR EACH ROW EXECUTE FUNCTION tips_search_update();
         ''')
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_tips_category_order
-            ON tips (category_id, display_order);
-        ''')
-        
+
         # user_views table for tracking user tip views
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_views (
@@ -144,12 +153,13 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_user_views_tip_id
             ON user_views (tip_id)
         ''')
-        
-        # Trigger on tips
         await conn.execute('''
-            DROP TRIGGER IF EXISTS search_trigger ON tips;
-            CREATE TRIGGER search_trigger AFTER INSERT OR UPDATE
-            ON tips FOR EACH ROW EXECUTE FUNCTION tips_search_update();
+            CREATE INDEX IF NOT EXISTS idx_user_views_viewed_at
+            ON user_views (viewed_at)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_views_user_viewed
+            ON user_views (user_id, viewed_at)
         ''')
 
         # Add timestamp columns to existing tables (if not exist)
@@ -168,7 +178,7 @@ async def init_db():
             ALTER TABLE user_languages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ''')
 
-        # Initial population of tips_search (after ensuring all tables exist)
+        # Initial population of tips_search
         await conn.execute('''
             INSERT INTO tips_search (tip_id, tsv)
             SELECT t.id,
@@ -190,14 +200,6 @@ async def init_db():
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_user_favorites_user_created
             ON user_favorites (user_id, created_at);
-        ''')
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_user_views_user_viewed
-            ON user_views (user_id, viewed_at);
-        ''')
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_user_views_viewed_at
-            ON user_views (viewed_at);
         ''')
 
         # User activity log table
@@ -224,7 +226,7 @@ async def init_db():
             ON user_activity_log (action);
         ''')
 
-        print("Database tables, indexes, timestamp columns, and new analytics table verified/created.")
+        print("Database tables, indexes, timestamp columns, and all features verified/created.")
     finally:
         await conn.close()
 
