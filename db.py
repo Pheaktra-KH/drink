@@ -165,13 +165,42 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_user_favorites_user_created
             ON user_favorites (user_id, created_at);
         ''')
-
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_user_views_user_viewed
             ON user_views (user_id, viewed_at);
         ''')
 
-        print("Database tables, indexes, and timestamp columns verified/created.")
+        # --- NEW: Index on viewed_at for faster time-based queries ---
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_views_viewed_at
+            ON user_views (viewed_at);
+        ''')
+
+        # --- NEW: User activity log table ---
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_activity_log (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                action TEXT NOT NULL,
+                tip_id TEXT,
+                search_query TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_activity_user_id
+            ON user_activity_log (user_id);
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_activity_created
+            ON user_activity_log (created_at);
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_activity_action
+            ON user_activity_log (action);
+        ''')
+
+        print("Database tables, indexes, timestamp columns, and new analytics table verified/created.")
     finally:
         await conn.close()
 
