@@ -56,16 +56,22 @@ async def init_db():
                 UNIQUE(category, subcategory)
             )
         ''')
-
-        # --- Add display_order column if not exists ---
         await conn.execute('''
             ALTER TABLE categories ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0;
         ''')
-
-        # Now create the index that uses display_order
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_categories_order
             ON categories (category, display_order, subcategory);
+        ''')
+
+        # NEW: subcategory_translations table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS subcategory_translations (
+                category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+                language_code TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                PRIMARY KEY (category_id, language_code)
+            )
         ''')
 
         # tips table
@@ -232,6 +238,13 @@ async def migrate_data(data: dict):
                 ''', category_name, subcat_name, order)
                 order += 1
 
+                # Insert translations (same name for both languages)
+                await conn.execute('''
+                    INSERT INTO subcategory_translations (category_id, language_code, display_name)
+                    VALUES ($1, 'en', $2), ($1, 'km', $3)
+                    ON CONFLICT (category_id, language_code) DO NOTHING
+                ''', cat_id, subcat_name, subcat_name)
+
                 for tip in tips_list:
                     ingredients_json = json.dumps(tip.get("ingredients", []))
                     steps_json = json.dumps(tip.get("steps", []))
@@ -252,6 +265,6 @@ async def migrate_data(data: dict):
                         tip.get("picture_file_id", ""),
                         tip.get("video_url", "")
                     )
-        print("Initial data migrated to database (with timestamps and order).")
+        print("Initial data migrated to database (with timestamps, order, and translations).")
     finally:
         await conn.close()
