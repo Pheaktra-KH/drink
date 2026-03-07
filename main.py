@@ -2331,21 +2331,37 @@ async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: i
         lines.append(f"`{header}`")
         lines.append("`" + "-" * (max_no + max_ing + max_amt + 12) + "`")
         
-        for r in ingredients:
-            no = str(r.get("no", ""))
-            ing = r.get("ingredient", "")
-            amt = str(r.get("amount", ""))
-            uom = r.get("uom", "")
-            rem = r.get("remark", "")
-            amount_str = f"{amt}{uom}" if amt and uom else ""
-            line = f"{no:<{max_no}}  {ing:<{max_ing}}  {amount_str:<{max_amt}}  {rem}"
-            lines.append(f"`{line}`")
-        lines.append("")
-    
-    # Steps
-    lines.append(f"**{TEXTS[lang]['how_to_make']}**")
-    for i, s in enumerate(steps, 1):
-        lines.append(f"{i}. {s}")
+        if ingredients:
+            lines.append(f"**{TEXTS[lang]['ingredients']}**")
+            # Calculate max widths for alignment
+            max_no = max(len(str(i.get("no", ""))) for i in ingredients)
+            max_ing = max(len(i.get("ingredient", "")) for i in ingredients)
+            max_amt = max(len(str(i.get("amount", "")) + i.get("uom", "")) for i in ingredients)
+        
+            # Header
+            header = f"{'#':<{max_no}}  {'Ingredient':<{max_ing}}  {'Amount':<{max_amt}}  Remark"
+            lines.append(f"`{header}`")
+            lines.append("`" + "-" * (max_no + max_ing + max_amt + 12) + "`")
+        
+            for r in ingredients:
+                no = str(r.get("no", ""))
+                ing = r.get("ingredient", "")
+                amt = r.get("amount", "")
+                uom = r.get("uom", "")
+                rem = r.get("remark", "")
+                # Format amount with 2 decimals if it's a number
+                if amt:
+                    try:
+                        amt_val = float(amt)
+                        amt_str = f"{amt_val:.2f}"
+                    except:
+                        amt_str = str(amt)
+                else:
+                    amt_str = ""
+                amount_str = f"{amt_str}{uom}"
+                line = f"{no:<{max_no}}  {ing:<{max_ing}}  {amount_str:<{max_amt}}  {rem}"
+                lines.append(f"`{line}`")
+            lines.append("")
     
     return "\n".join(lines)
 
@@ -4040,6 +4056,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
