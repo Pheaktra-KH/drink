@@ -2319,52 +2319,65 @@ async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: i
     lines.append(f"└ 👁️ {view_count} views | ⭐ {fav_count} | 📤 {share_count}\n")
     
     # Ingredients in a table-like format using code block
+async def render_tip_card(tip: Dict[str, Any], view_count: int = 0, fav_count: int = 0, share_count: int = 0, user_id: int = None) -> str:
+    title = tip.get("title", "Untitled")
+    subcat = tip.get("subcategory", "")
+    ingredients: List[Dict[str, Any]] = tip.get("ingredients", [])
+    steps: List[str] = tip.get("steps", [])
+    lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
+
+    lines = []
+    lines.append(f"📘 **{title}**")
+    lines.append(f"└ {TEXTS[lang]['type_label']}: `{subcat}`")
+    lines.append(f"└ 👁️ {view_count} views | ⭐ {fav_count} | 📤 {share_count}\n")
+
     if ingredients:
         lines.append(f"**{TEXTS[lang]['ingredients']}**")
+
+        # Determine ingredient name and remark keys based on language
+        if lang == "km":
+            ing_key = "ingredient_km"
+            rem_key = "remark_km"
+        else:
+            ing_key = "ingredient_en"
+            rem_key = "remark_en"
+
         # Calculate max widths for alignment
         max_no = max(len(str(i.get("no", ""))) for i in ingredients)
-        max_ing = max(len(i.get("ingredient", "")) for i in ingredients)
+        max_ing = max(len(i.get(ing_key, "")) for i in ingredients)
         max_amt = max(len(str(i.get("amount", "")) + i.get("uom", "")) for i in ingredients)
-        
-        # Header
+
         header = f"{'#':<{max_no}}  {'Ingredient':<{max_ing}}  {'Amount':<{max_amt}}  Remark"
         lines.append(f"`{header}`")
         lines.append("`" + "-" * (max_no + max_ing + max_amt + 12) + "`")
-        
-        if ingredients:
-            lines.append(f"**{TEXTS[lang]['ingredients']}**")
-            # Calculate max widths for alignment
-            max_no = max(len(str(i.get("no", ""))) for i in ingredients)
-            max_ing = max(len(i.get("ingredient", "")) for i in ingredients)
-            max_amt = max(len(str(i.get("amount", "")) + i.get("uom", "")) for i in ingredients)
-        
-            # Header
-            header = f"{'#':<{max_no}}  {'Ingredient':<{max_ing}}  {'Amount':<{max_amt}}  Remark"
-            lines.append(f"`{header}`")
-            lines.append("`" + "-" * (max_no + max_ing + max_amt + 12) + "`")
-        
-            for r in ingredients:
-                no = str(r.get("no", ""))
-                ing = r.get("ingredient", "")
-                amt = r.get("amount", "")
-                uom = r.get("uom", "")
-                rem = r.get("remark", "")
-                # Format amount with 2 decimals if it's a number
-                if amt:
-                    try:
-                        amt_val = float(amt)
-                        amt_str = f"{amt_val:.2f}"
-                    except:
-                        amt_str = str(amt)
-                else:
-                    amt_str = ""
-                amount_str = f"{amt_str}{uom}"
-                line = f"{no:<{max_no}}  {ing:<{max_ing}}  {amount_str:<{max_amt}}  {rem}"
-                lines.append(f"`{line}`")
-            lines.append("")
-    
-    return "\n".join(lines)
 
+        for r in ingredients:
+            no = str(r.get("no", ""))
+            ing = r.get(ing_key, "")
+            amt = r.get("amount", "")
+            uom = r.get("uom", "")
+            rem = r.get(rem_key, "")
+
+            # Format amount with 2 decimals if it's a number
+            if amt:
+                try:
+                    amt_val = float(amt)
+                    amt_str = f"{amt_val:.2f}"
+                except:
+                    amt_str = str(amt)
+            else:
+                amt_str = ""
+            amount_str = f"{amt_str}{uom}"
+            line = f"{no:<{max_no}}  {ing:<{max_ing}}  {amount_str:<{max_amt}}  {rem}"
+            lines.append(f"`{line}`")
+        lines.append("")
+
+    # Steps
+    lines.append(f"**{TEXTS[lang]['how_to_make']}**")
+    for i, s in enumerate(steps, 1):
+        lines.append(f"{i}. {s}")
+
+    return "\n".join(lines)
 async def render_ingredient_card(tip: Dict[str, Any], current_index: int, total_count: int, user_id: int = None) -> str:
     lang = await get_user_lang(user_id) if user_id else DEFAULT_LANG
     title = tip.get("title", "Untitled")
@@ -4056,6 +4069,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Bot stopped.")
+
 
 
 
