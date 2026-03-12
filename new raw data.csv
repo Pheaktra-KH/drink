@@ -1,0 +1,24 @@
+﻿id,bakery/drink,Type,Categories,Class,Items,Comodity,Description,amount,UOM,price,total cost
+1,drink,café,hot,,Caffe Latte,Coffee,Espresso shot,30,ml,0.01,0.3
+2,drink,café,hot,,Caffe Latte,Dairy,Whole milk,200,ml,0.002,0.4
+3,drink,café,hot,,Caffe Latte,Syrup,Vanilla syrup,10,ml,0.05,0.5
+4,drink,café,cold,,Iced Americano,Coffee,Espresso shot,60,ml,0.01,0.6
+5,drink,café,cold,,Iced Americano,Water,Filtered water,100,ml,0.0001,0.01
+6,bakery,cookie,,,Chocolate Chip Cookie,Flour,All-purpose flour,100,g,0.001,0.1
+7,bakery,cookie,,,Chocolate Chip Cookie,Sugar,Granulated sugar,50,g,0.001,0.05
+8,bakery,cookie,,,Chocolate Chip Cookie,Dairy,Unsalted butter,40,g,0.005,0.2
+9,bakery,cookie,,,Chocolate Chip Cookie,Chocolate,Semi-sweet chocolate chips,30,g,0.01,0.3
+10,bakery,cookie,,,Chocolate Chip Cookie,Eggs,Large egg,0.083,pcs,0.2,0.0166
+11,bakery,muffin,,,Blueberry Muffin,Flour,All-purpose flour,80,g,0.001,0.08
+12,bakery,muffin,,,Blueberry Muffin,Sugar,Granulated sugar,40,g,0.001,0.04
+13,bakery,muffin,,,Blueberry Muffin,Dairy,Unsalted butter,30,g,0.005,0.15
+14,bakery,muffin,,,Blueberry Muffin,Eggs,Large egg,0.125,pcs,0.2,0.025
+15,bakery,muffin,,,Blueberry Muffin,Dairy,Whole milk,20,ml,0.002,0.04
+16,bakery,muffin,,,Blueberry Muffin,Fruit,Blueberries,20,g,0.02,0.4
+17,drink,topping,,,Whipped Cream,Dairy,Heavy cream,100,ml,0.003,0.3
+18,drink,topping,,,Whipped Cream,Sugar,Granulated sugar,10,g,0.001,0.01
+19,drink,topping,,,Whipped Cream,Flavor,Vanilla extract,2,ml,0.1,0.2
+20,drink,sauce,,,Chocolate Sauce,Cocoa,Cocoa powder,20,g,0.015,0.3
+21,drink,sauce,,,Chocolate Sauce,Sugar,Granulated sugar,30,g,0.001,0.03
+22,drink,sauce,,,Chocolate Sauce,Water,Filtered water,50,ml,0.0001,0.005
+23,drink,sauce,,,Chocolate Sauce,Dairy,Butter,10,g,0.005,0.05
